@@ -2,10 +2,10 @@ const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
 const router = express.Router();
 
-// Initialize Supabase client
+// Initialize Supabase client with service key for admin operations
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_KEY // Using service key for admin operations
 );
 
 // Test Supabase connection
@@ -31,7 +31,11 @@ router.get("/test-connection", async (req, res) => {
       .limit(1);
 
     // We expect this to fail with a specific error, which means connection works
-    const connectionWorks = error && error.code === "42P01"; // Table doesn't exist error
+    const connectionWorks =
+      error &&
+      (error.code === "42P01" ||
+        error.message?.includes("Could not find the table") ||
+        error.message?.includes("nonexistent_table")); // Table doesn't exist error
 
     // Test 3: Test storage connection
     let storageWorks = false;
@@ -107,6 +111,60 @@ router.get("/test-storage", async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to test storage",
+      details: error.message,
+    });
+  }
+});
+
+// Create uploads bucket if it doesn't exist
+router.post("/create-bucket", async (req, res) => {
+  try {
+    // First check if bucket already exists
+    const { data: buckets, error: listError } =
+      await supabase.storage.listBuckets();
+
+    if (listError) {
+      throw listError;
+    }
+
+    const uploadsBucket = buckets.find((bucket) => bucket.name === "uploads");
+
+    if (uploadsBucket) {
+      return res.json({
+        success: true,
+        message: "Bucket 'uploads' already exists",
+        bucket: uploadsBucket,
+      });
+    }
+
+    // Create the bucket
+    const { data, error } = await supabase.storage.createBucket("uploads", {
+      public: true,
+      fileSizeLimit: 5242880, // 5MB in bytes
+      allowedMimeTypes: [
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "image/svg+xml",
+      ],
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({
+      success: true,
+      message: "Bucket 'uploads' created successfully",
+      data: data,
+    });
+  } catch (error) {
+    console.error("Create bucket error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to create bucket",
       details: error.message,
     });
   }

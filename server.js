@@ -16,6 +16,14 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+// Import and use upload routes
+const uploadRoutes = require("./routes/upload");
+app.use("/api/upload", uploadRoutes);
+
+// Import and use test routes
+const testRoutes = require("./routes/test");
+app.use("/api/test", testRoutes);
+
 // Basic health check endpoint
 app.get("/", (req, res) => {
   res.json({

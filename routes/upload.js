@@ -3,10 +3,10 @@ const multer = require("multer");
 const { createClient } = require("@supabase/supabase-js");
 const router = express.Router();
 
-// Initialize Supabase client
+// Initialize Supabase client with service key for admin operations
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_KEY // Use service key for bypassing RLS
 );
 
 // Configure multer for memory storage
@@ -80,9 +80,9 @@ router.post("/image", upload.single("image"), async (req, res) => {
       .from("uploads")
       .getPublicUrl(filePath);
 
-    // Optional: Save file metadata to database
+    // Save file metadata to database using service key (bypasses RLS)
     const { data: dbData, error: dbError } = await supabase
-      .from("uploaded_files") // You'll need to create this table
+      .from("uploaded_files")
       .insert([
         {
           filename: originalname,

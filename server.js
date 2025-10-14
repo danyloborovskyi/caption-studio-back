@@ -20,6 +20,10 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 const uploadRoutes = require("./routes/upload");
 app.use("/api/upload", uploadRoutes);
 
+// Import and use files routes
+const filesRoutes = require("./routes/files");
+app.use("/api/files", filesRoutes);
+
 // Import and use test routes
 const testRoutes = require("./routes/test");
 app.use("/api/test", testRoutes);

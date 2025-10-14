@@ -421,4 +421,64 @@ router.get("/search", async (req, res) => {
   }
 });
 
+// DELETE route to remove a file
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // First, get the file info from database
+    const { data: fileData, error: fetchError } = await supabase
+      .from("uploaded_files")
+      .select("file_path, filename, mime_type")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !fileData) {
+      return res.status(404).json({
+        success: false,
+        error: "File not found",
+      });
+    }
+
+    // Delete from Supabase Storage
+    const { error: storageError } = await supabase.storage
+      .from("uploads")
+      .remove([fileData.file_path]);
+
+    if (storageError) {
+      console.error("Storage delete error:", storageError);
+      // Continue with database deletion even if storage fails
+    }
+
+    // Delete from database
+    const { error: dbError } = await supabase
+      .from("uploaded_files")
+      .delete()
+      .eq("id", id);
+
+    if (dbError) {
+      throw dbError;
+    }
+
+    res.json({
+      success: true,
+      message: "File deleted successfully",
+      data: {
+        id: id,
+        filename: fileData.filename,
+        type: fileData.mime_type,
+        storage_deleted: !storageError,
+        database_deleted: true,
+      },
+    });
+  } catch (error) {
+    console.error("Delete error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to delete file",
+      details: error.message,
+    });
+  }
+});
+
 module.exports = router;

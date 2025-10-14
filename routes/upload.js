@@ -187,58 +187,6 @@ router.post("/image", upload.single("image"), async (req, res) => {
   }
 });
 
-// DELETE route to remove an image
-router.delete("/image/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // First, get the file info from database
-    const { data: fileData, error: fetchError } = await supabase
-      .from("uploaded_files")
-      .select("file_path")
-      .eq("id", id)
-      .single();
-
-    if (fetchError || !fileData) {
-      return res.status(404).json({
-        success: false,
-        error: "File not found",
-      });
-    }
-
-    // Delete from Supabase Storage
-    const { error: storageError } = await supabase.storage
-      .from("uploads")
-      .remove([fileData.file_path]);
-
-    if (storageError) {
-      console.error("Storage delete error:", storageError);
-    }
-
-    // Delete from database
-    const { error: dbError } = await supabase
-      .from("uploaded_files")
-      .delete()
-      .eq("id", id);
-
-    if (dbError) {
-      throw dbError;
-    }
-
-    res.json({
-      success: true,
-      message: "Image deleted successfully",
-    });
-  } catch (error) {
-    console.error("Delete error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to delete image",
-      details: error.message,
-    });
-  }
-});
-
 // POST route to analyze an uploaded image with AI
 router.post("/analyze/:id", async (req, res) => {
   try {

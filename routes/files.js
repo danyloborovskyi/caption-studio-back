@@ -291,37 +291,56 @@ router.get("/search", async (req, res) => {
     const limitNum = parseInt(limit);
     const offset = (pageNum - 1) * limitNum;
 
-    // Build search query
-    let query = supabase.from("uploaded_files").select("*", { count: "exact" });
+    // Build search query - get all results and filter client-side for better tag support
+    let query = supabase.from("uploaded_files").select("*");
 
-    // Search in filename and description (if column exists)
-    try {
-      query = query.or(
-        `filename.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%`
-      );
-    } catch (searchError) {
-      // If description column doesn't exist, search only filename
-      query = query.ilike("filename", `%${searchQuery}%`);
-    }
-
-    // Add type filter if provided
+    // Add type filter if provided (this can be done at database level)
     if (type) {
       query = query.like("mime_type", `${type}%`);
     }
 
-    // Add pagination and sorting
-    query = query
-      .order("uploaded_at", { ascending: false })
-      .range(offset, offset + limitNum - 1);
+    // Add pagination and sorting (remove pagination for now, we'll do it after filtering)
+    query = query.order("uploaded_at", { ascending: false });
 
-    const { data, error, count } = await query;
+    const { data, error } = await query;
 
     if (error) {
       throw error;
     }
 
+    // Client-side filtering for tags and apply search to all results
+    let filteredData = data || [];
+    if (searchQuery) {
+      filteredData = (data || []).filter((file) => {
+        // Check filename
+        const filenameMatch = file.filename
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase());
+
+        // Check description
+        const descriptionMatch = file.description
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase());
+
+        // Check tags array
+        const tagsMatch =
+          file.tags && Array.isArray(file.tags)
+            ? file.tags.some((tag) =>
+                tag.toLowerCase().includes(searchQuery.toLowerCase())
+              )
+            : false;
+
+        // Return true if any field matches
+        return filenameMatch || descriptionMatch || tagsMatch;
+      });
+    }
+
+    // Apply pagination to filtered results
+    const totalFiltered = filteredData.length;
+    const paginatedData = filteredData.slice(offset, offset + limitNum);
+
     // Format response data
-    const formattedData = (data || []).map((file) => ({
+    const formattedData = paginatedData.map((file) => ({
       id: file.id,
       filename: file.filename,
       public_url: file.public_url,
@@ -341,13 +360,13 @@ router.get("/search", async (req, res) => {
       search: {
         query: searchQuery,
         type_filter: type || "all",
-        results_found: count,
+        results_found: totalFiltered,
       },
       pagination: {
         current_page: pageNum,
         per_page: limitNum,
-        total_items: count,
-        total_pages: Math.ceil(count / limitNum),
+        total_items: totalFiltered,
+        total_pages: Math.ceil(totalFiltered / limitNum),
       },
     });
   } catch (error) {

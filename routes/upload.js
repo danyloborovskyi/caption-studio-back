@@ -18,6 +18,11 @@ const openai = new OpenAI({
 // Function to analyze image with OpenAI Vision
 async function analyzeImageWithAI(imageUrl) {
   try {
+    // Validate image URL format
+    if (!imageUrl || !imageUrl.includes("supabase")) {
+      throw new Error("Invalid image URL");
+    }
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -27,7 +32,7 @@ async function analyzeImageWithAI(imageUrl) {
             {
               type: "text",
               text: `Analyze this image and provide:
-1. A detailed, engaging description of what you see (2-3 sentences)
+1. A detailed, engaging description of what you see (1 sentence)
 2. Exactly 10 relevant tags/keywords (single words or short phrases)
 
 Format your response as JSON:
@@ -64,9 +69,20 @@ Format your response as JSON:
     throw new Error("Could not parse AI response");
   } catch (error) {
     console.error("OpenAI Vision error:", error);
+
+    // Provide more specific error messages
+    let errorMessage = error.message;
+    if (error.message?.includes("unsupported image")) {
+      errorMessage =
+        "Unsupported image format. Please use PNG, JPEG, GIF, or WebP.";
+    } else if (error.message?.includes("invalid_image_format")) {
+      errorMessage =
+        "Invalid image format. Please use PNG, JPEG, GIF, or WebP.";
+    }
+
     return {
       success: false,
-      error: error.message,
+      error: errorMessage,
       description: null,
       tags: [],
     };
@@ -76,7 +92,7 @@ Format your response as JSON:
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
 
-// File filter for images
+// File filter for images (OpenAI Vision compatible)
 const fileFilter = (req, file, cb) => {
   const allowedMimes = [
     "image/jpeg",
@@ -84,13 +100,18 @@ const fileFilter = (req, file, cb) => {
     "image/png",
     "image/gif",
     "image/webp",
-    "image/svg+xml",
+    // Remove svg as OpenAI doesn't support it
   ];
 
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error("Only image files are allowed!"), false);
+    cb(
+      new Error(
+        `Only these image formats are supported: ${allowedMimes.join(", ")}`
+      ),
+      false
+    );
   }
 };
 
@@ -407,6 +428,300 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to process image upload and analysis",
+      details: error.message,
+    });
+  }
+});
+
+// POST route for bulk upload + AI analysis (up to 3 images)
+router.post(
+  "/bulk-upload-and-analyze",
+  upload.array("images", 3),
+  async (req, res) => {
+    try {
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "No image files provided",
+        });
+      }
+
+      if (req.files.length > 3) {
+        return res.status(400).json({
+          success: false,
+          error: "Maximum 3 images allowed per request",
+        });
+      }
+
+      const results = [];
+      const errors = [];
+
+      // Process each image
+      for (let i = 0; i < req.files.length; i++) {
+        const file = req.files[i];
+        const { originalname, buffer, mimetype, size } = file;
+
+        try {
+          // Generate unique filename
+          const timestamp = Date.now();
+          const fileExtension = originalname.split(".").pop();
+          const fileName = `image_${timestamp}_${i}.${fileExtension}`;
+          const filePath = `images/${fileName}`;
+
+          // Upload to Supabase Storage
+          const { data, error } = await supabase.storage
+            .from("uploads")
+            .upload(filePath, buffer, {
+              contentType: mimetype,
+              cacheControl: "3600",
+              upsert: false,
+            });
+
+          if (error) {
+            errors.push({
+              filename: originalname,
+              error: `Storage upload failed: ${error.message}`,
+            });
+            continue;
+          }
+
+          // Get public URL for the uploaded file
+          const { data: publicData } = supabase.storage
+            .from("uploads")
+            .getPublicUrl(filePath);
+
+          // Save basic file metadata to database
+          const { data: dbData, error: dbError } = await supabase
+            .from("uploaded_files")
+            .insert([
+              {
+                filename: originalname,
+                file_path: filePath,
+                file_size: size,
+                mime_type: mimetype,
+                public_url: publicData.publicUrl,
+                uploaded_at: new Date().toISOString(),
+              },
+            ])
+            .select()
+            .single();
+
+          if (dbError) {
+            errors.push({
+              filename: originalname,
+              error: `Database save failed: ${dbError.message}`,
+            });
+            continue;
+          }
+
+          // Analyze image with OpenAI Vision
+          const aiResult = await analyzeImageWithAI(publicData.publicUrl);
+
+          // Try to update database with AI results
+          if (aiResult.success) {
+            try {
+              await supabase
+                .from("uploaded_files")
+                .update({
+                  description: aiResult.description,
+                  tags: aiResult.tags,
+                  status: "completed",
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", dbData.id);
+            } catch (updateError) {
+              console.warn(
+                `Could not update AI results for ${originalname}:`,
+                updateError
+              );
+            }
+          }
+
+          // Add successful result
+          results.push({
+            id: dbData.id,
+            filename: originalname,
+            size: size,
+            type: mimetype,
+            path: filePath,
+            publicUrl: publicData.publicUrl,
+            description: aiResult.success ? aiResult.description : null,
+            tags: aiResult.success ? aiResult.tags : [],
+            status: aiResult.success ? "completed" : "failed",
+            uploadedAt: dbData.uploaded_at,
+            analyzedAt: new Date().toISOString(),
+            analysis: {
+              success: aiResult.success,
+              error: aiResult.success ? null : aiResult.error,
+            },
+          });
+        } catch (fileError) {
+          errors.push({
+            filename: originalname,
+            error: `Processing failed: ${fileError.message}`,
+          });
+        }
+      }
+
+      // Return results
+      const response = {
+        success: results.length > 0,
+        message: `Processed ${results.length} of ${req.files.length} images`,
+        data: {
+          successful_uploads: results.length,
+          total_attempts: req.files.length,
+          results: results,
+          errors: errors,
+        },
+      };
+
+      // Return appropriate status code
+      if (results.length === 0) {
+        return res.status(500).json({
+          ...response,
+          success: false,
+          message: "All uploads failed",
+        });
+      } else if (errors.length > 0) {
+        return res.status(207).json(response); // 207 Multi-Status
+      } else {
+        return res.status(200).json(response);
+      }
+    } catch (error) {
+      console.error("Bulk upload and analysis error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to process bulk upload and analysis",
+        details: error.message,
+      });
+    }
+  }
+);
+
+// POST route for bulk analysis of existing images
+router.post("/bulk-analyze", async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!ids || !Array.isArray(ids)) {
+      return res.status(400).json({
+        success: false,
+        error: "Array of image IDs is required",
+      });
+    }
+
+    if (ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "At least one image ID is required",
+      });
+    }
+
+    if (ids.length > 3) {
+      return res.status(400).json({
+        success: false,
+        error: "Maximum 3 images allowed per request",
+      });
+    }
+
+    const results = [];
+    const errors = [];
+
+    // Process each image ID
+    for (const id of ids) {
+      try {
+        // Get the image record from database
+        const { data: imageRecord, error: fetchError } = await supabase
+          .from("uploaded_files")
+          .select("*")
+          .eq("id", id)
+          .single();
+
+        if (fetchError || !imageRecord) {
+          errors.push({
+            id: id,
+            error: "Image not found",
+          });
+          continue;
+        }
+
+        // Analyze image with OpenAI Vision
+        const aiResult = await analyzeImageWithAI(imageRecord.public_url);
+
+        if (!aiResult.success) {
+          errors.push({
+            id: id,
+            filename: imageRecord.filename,
+            error: `AI analysis failed: ${aiResult.error}`,
+          });
+          continue;
+        }
+
+        // Update database with AI results
+        try {
+          await supabase
+            .from("uploaded_files")
+            .update({
+              description: aiResult.description,
+              tags: aiResult.tags,
+              status: "completed",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", id);
+        } catch (updateError) {
+          console.warn(`Database update failed for ID ${id}:`, updateError);
+        }
+
+        // Add successful result
+        results.push({
+          id: imageRecord.id,
+          filename: imageRecord.filename,
+          public_url: imageRecord.public_url,
+          description: aiResult.description,
+          tags: aiResult.tags,
+          status: "completed",
+          analyzed_at: new Date().toISOString(),
+          analysis: {
+            success: true,
+          },
+        });
+      } catch (analysisError) {
+        errors.push({
+          id: id,
+          error: `Processing failed: ${analysisError.message}`,
+        });
+      }
+    }
+
+    // Return results
+    const response = {
+      success: results.length > 0,
+      message: `Analyzed ${results.length} of ${ids.length} images`,
+      data: {
+        successful_analyses: results.length,
+        total_attempts: ids.length,
+        results: results,
+        errors: errors,
+      },
+    };
+
+    // Return appropriate status code
+    if (results.length === 0) {
+      return res.status(500).json({
+        ...response,
+        success: false,
+        message: "All analyses failed",
+      });
+    } else if (errors.length > 0) {
+      return res.status(207).json(response); // 207 Multi-Status
+    } else {
+      return res.status(200).json(response);
+    }
+  } catch (error) {
+    console.error("Bulk analysis error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to process bulk analysis",
       details: error.message,
     });
   }

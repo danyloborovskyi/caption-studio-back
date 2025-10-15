@@ -109,67 +109,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET route to retrieve a single file by ID
-router.get("/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const { data: file, error } = await supabase
-      .from("uploaded_files")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (error) {
-      if (error.code === "PGRST116") {
-        return res.status(404).json({
-          success: false,
-          error: "File not found",
-        });
-      }
-      throw error;
-    }
-
-    // Format the single file data
-    const formattedFile = {
-      id: file.id,
-      filename: file.filename,
-      file_path: file.file_path,
-      file_size: file.file_size,
-      mime_type: file.mime_type,
-      public_url: file.public_url,
-      description: file.description || null,
-      tags: file.tags || [],
-      status: file.status || "uploaded",
-      uploaded_at: file.uploaded_at,
-      updated_at: file.updated_at || file.uploaded_at,
-      // Add computed fields
-      file_size_mb: file.file_size
-        ? (file.file_size / (1024 * 1024)).toFixed(2)
-        : null,
-      file_size_kb: file.file_size ? (file.file_size / 1024).toFixed(2) : null,
-      has_ai_analysis: !!(
-        file.description ||
-        (file.tags && file.tags.length > 0)
-      ),
-      is_image: file.mime_type?.startsWith("image/") || false,
-      file_extension: file.filename?.split(".").pop()?.toLowerCase() || null,
-    };
-
-    res.json({
-      success: true,
-      data: formattedFile,
-    });
-  } catch (error) {
-    console.error("Get file error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch file",
-      details: error.message,
-    });
-  }
-});
-
 // GET route to retrieve images only
 router.get("/images", async (req, res) => {
   try {
@@ -416,6 +355,67 @@ router.get("/search", async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to search files",
+      details: error.message,
+    });
+  }
+});
+
+// GET route to retrieve a single file by ID (must be LAST)
+router.get("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: file, error } = await supabase
+      .from("uploaded_files")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        return res.status(404).json({
+          success: false,
+          error: "File not found",
+        });
+      }
+      throw error;
+    }
+
+    // Format the single file data
+    const formattedFile = {
+      id: file.id,
+      filename: file.filename,
+      file_path: file.file_path,
+      file_size: file.file_size,
+      mime_type: file.mime_type,
+      public_url: file.public_url,
+      description: file.description || null,
+      tags: file.tags || [],
+      status: file.status || "uploaded",
+      uploaded_at: file.uploaded_at,
+      updated_at: file.updated_at || file.uploaded_at,
+      // Add computed fields
+      file_size_mb: file.file_size
+        ? (file.file_size / (1024 * 1024)).toFixed(2)
+        : null,
+      file_size_kb: file.file_size ? (file.file_size / 1024).toFixed(2) : null,
+      has_ai_analysis: !!(
+        file.description ||
+        (file.tags && file.tags.length > 0)
+      ),
+      is_image: file.mime_type?.startsWith("image/") || false,
+      file_extension: file.filename?.split(".").pop()?.toLowerCase() || null,
+    };
+
+    res.json({
+      success: true,
+      data: formattedFile,
+    });
+  } catch (error) {
+    console.error("Get file error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch file",
       details: error.message,
     });
   }

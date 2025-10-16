@@ -33,12 +33,12 @@ async function analyzeImageWithAI(imageUrl) {
               type: "text",
               text: `Analyze this image and provide:
 1. A detailed, engaging description of what you see (1 sentence)
-2. Exactly 10 relevant tags/keywords (single words or short phrases)
+2. Exactly 5 relevant tags/keywords (single words or short phrases)
 
 Format your response as JSON:
 {
   "description": "Your description here",
-  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10"]
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
 }`,
             },
             {

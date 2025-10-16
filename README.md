@@ -1,31 +1,30 @@
 # Caption Studio Backend
 
-A comprehensive Express.js backend service for Caption Studio application with AI-powered image analysis, file management, and bulk processing capabilities.
+A robust Express.js backend server for the Caption Studio application, featuring image upload, AI analysis, and comprehensive file management.
 
-## 🚀 Features
+## Features
 
 ### Core Functionality
 
 - **Image Upload & Storage** - Upload images to Supabase Storage with metadata tracking
 - **AI Image Analysis** - OpenAI Vision (GPT-4o-mini) for automatic description and tag generation
 - **Bulk Processing** - Upload and analyze up to 3 images simultaneously
-- **File Management** - Complete CRUD operations for uploaded files
-- **Search & Filtering** - Advanced file search with pagination and filtering
+- **File Management** - Comprehensive CRUD operations for uploaded files
+- **Search & Filtering** - Advanced capabilities to find and organize files
 
 ### Technical Features
 
 - **RESTful API** - Clean, organized endpoint structure
 - **Error Handling** - Comprehensive error handling with proper HTTP status codes
-- **File Validation** - Support for PNG, JPEG, GIF, and WebP formats
-- **Database Integration** - Supabase for data persistence and storage
-- **CORS Support** - Cross-origin resource sharing for frontend integration
-- **Environment Configuration** - Flexible environment-based configuration
+- **Environment Configuration** - Secure management of sensitive data
+- **CORS Support** - Seamless frontend integration
+- **Health Monitoring** - Endpoints for server and service status checks
 
-## 🛠 Tech Stack
+## Tech Stack
 
 ### Backend Framework
 
-- **Express.js** - Web application framework
+- **Express.js** - Web framework for the backend.
 - **Node.js** - Runtime environment (v16+)
 
 ### AI & Machine Learning
@@ -48,16 +47,16 @@ A comprehensive Express.js backend service for Caption Studio application with A
 
 - **CORS** - Cross-origin resource sharing
 - **dotenv** - Environment variable management
-- **nodemon** - Development auto-reload
+- **nodemon** - Development server auto-restart
 
-## 📋 Prerequisites
+## Prerequisites
 
-- **Node.js** v16.0.0 or higher
-- **npm** v8.0.0 or higher
-- **Supabase Account** - For database and storage
-- **OpenAI Account** - For AI image analysis
+- Node.js (v16 or higher)
+- npm (v8 or higher)
+- A Supabase project
+- An OpenAI API key
 
-## 🔧 Installation
+## Installation
 
 ### 1. Clone Repository
 
@@ -75,7 +74,7 @@ npm install
 ### 3. Environment Setup
 
 ```bash
-cp .env.template .env
+cp env.template .env
 ```
 
 ### 4. Configure Environment Variables
@@ -83,17 +82,14 @@ cp .env.template .env
 Edit your `.env` file with your credentials:
 
 ```env
-# Server Configuration
 NODE_ENV=development
 PORT=3000
 FRONTEND_URL=http://localhost:3000
 
-# Supabase Configuration
 SUPABASE_URL=your_supabase_project_url_here
 SUPABASE_ANON_KEY=your_supabase_anon_key_here
 SUPABASE_SERVICE_KEY=your_supabase_service_key_here
 
-# OpenAI Configuration
 OPENAI_API_KEY=your_openai_api_key_here
 ```
 
@@ -102,27 +98,40 @@ OPENAI_API_KEY=your_openai_api_key_here
 Create the following table in your Supabase database:
 
 ```sql
--- Create uploaded_files table
-CREATE TABLE uploaded_files (
-    id SERIAL PRIMARY KEY,
-    filename TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    file_size INTEGER,
-    mime_type TEXT,
-    public_url TEXT NOT NULL,
-    description TEXT,
-    tags TEXT[],
-    status TEXT DEFAULT 'uploaded',
-    uploaded_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE public.uploaded_files (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  filename text NOT NULL,
+  file_path text NOT NULL,
+  file_size integer,
+  mime_type text,
+  public_url text NOT NULL,
+  description text,
+  tags text[],
+  status text DEFAULT 'uploaded'::text NOT NULL,
+  uploaded_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE public.uploaded_files ENABLE ROW LEVEL SECURITY;
+
+-- Create RLS policies (example - adjust as needed)
+CREATE POLICY "Allow public read access" ON public.uploaded_files FOR SELECT USING (true);
+CREATE POLICY "Allow authenticated insert access" ON public.uploaded_files FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Allow authenticated update access" ON public.uploaded_files FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Allow authenticated delete access" ON public.uploaded_files FOR DELETE USING (auth.role() = 'authenticated');
 
 -- Create storage bucket (or via Supabase Dashboard)
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('uploads', 'uploads', true);
+
+-- Set up storage policies (example - adjust as needed)
+CREATE POLICY "Allow public access to uploaded files" ON storage.objects FOR SELECT USING (bucket_id = 'uploads');
+CREATE POLICY "Allow authenticated uploads" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'uploads' AND auth.role() = 'authenticated');
+CREATE POLICY "Allow authenticated file deletion" ON storage.objects FOR DELETE USING (bucket_id = 'uploads' AND auth.role() = 'authenticated');
 ```
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Development Mode
 
@@ -136,9 +145,9 @@ npm run dev
 npm start
 ```
 
-The server will start on `http://localhost:3000`
+The server will start on `http://localhost:3000` (or the port specified in your `.env` file).
 
-## 📡 API Endpoints
+## API Endpoints
 
 ### Upload Operations
 
@@ -174,15 +183,16 @@ The server will start on `http://localhost:3000`
 
 ```
 caption-studio-back/
-├── routes/
-│   ├── upload.js        # Upload and AI analysis routes
-│   ├── files.js         # File management routes
-│   └── test.js          # Testing and health check routes
-├── .env.template        # Environment variables template
-├── .gitignore          # Git ignore rules
-├── package.json        # Project dependencies
-├── server.js           # Main server file
-└── README.md           # This documentation
+├── config/            # Supabase client configuration
+├── routes/            # API route definitions
+│   ├── files.js       # File retrieval and management routes
+│   ├── upload.js      # Image upload and AI analysis routes
+│   └── test.js        # Supabase connection and storage test routes
+├── .env.template      # Environment variables template
+├── .gitignore         # Git ignore rules
+├── package.json       # Project dependencies
+├── server.js          # Main Express server file
+└── README.md          # Project documentation
 ```
 
 ## 🔐 Environment Variables
@@ -203,16 +213,18 @@ caption-studio-back/
 
 ```bash
 curl -X POST http://localhost:3000/api/upload/upload-and-analyze \
-  -F "image=@/path/to/image.jpg"
+  -H "Content-Type: multipart/form-data" \
+  -F "image=@/path/to/your/image.jpg"
 ```
 
 ### Bulk Image Upload + Analysis
 
 ```bash
 curl -X POST http://localhost:3000/api/upload/bulk-upload-and-analyze \
-  -F "images=@/path/to/image1.jpg" \
-  -F "images=@/path/to/image2.jpg" \
-  -F "images=@/path/to/image3.jpg"
+  -H "Content-Type: multipart/form-data" \
+  -F "images=@/path/to/image1.png" \
+  -F "images=@/path/to/image2.jpeg" \
+  -F "images=@/path/to/image3.webp"
 ```
 
 ### List Files with Pagination
@@ -232,7 +244,7 @@ curl "http://localhost:3000/api/files/search?q=vacation&type=image"
 ```bash
 curl -X POST http://localhost:3000/api/upload/bulk-analyze \
   -H "Content-Type: application/json" \
-  -d '{"ids": [1, 2, 3]}'
+  -d '{"ids": ["file-id-1", "file-id-2"]}'
 ```
 
 ## 📊 Response Formats
@@ -244,8 +256,8 @@ curl -X POST http://localhost:3000/api/upload/bulk-analyze \
   "success": true,
   "message": "Image uploaded and analyzed successfully",
   "data": {
-    "id": 1,
-    "filename": "vacation-photo.jpg",
+    "id": "uuid-of-uploaded-file",
+    "filename": "your-image.jpg",
     "publicUrl": "https://...supabase.co/.../image_123.jpg",
     "description": "A stunning beach sunset with golden sand and turquoise water.",
     "tags": [
@@ -271,11 +283,28 @@ curl -X POST http://localhost:3000/api/upload/bulk-analyze \
 ```json
 {
   "success": true,
-  "message": "Processed 3 of 3 images",
+  "message": "Processed 2 of 2 images",
   "data": {
-    "successful_uploads": 3,
-    "total_attempts": 3,
-    "results": [...],
+    "successful_uploads": 2,
+    "total_attempts": 2,
+    "results": [
+      {
+        "id": "uuid-1",
+        "filename": "image1.jpg",
+        "description": "AI description 1",
+        "tags": ["tag1", "tag2"],
+        "status": "completed",
+        "publicUrl": "..."
+      },
+      {
+        "id": "uuid-2",
+        "filename": "image2.jpg",
+        "description": "AI description 2",
+        "tags": ["tagA", "tagB"],
+        "status": "completed",
+        "publicUrl": "..."
+      }
+    ],
     "errors": []
   }
 }
@@ -286,58 +315,71 @@ curl -X POST http://localhost:3000/api/upload/bulk-analyze \
 ```json
 {
   "success": true,
-  "data": [...],
+  "data": [
+    {
+      "id": "uuid-1",
+      "filename": "image1.jpg",
+      "file_path": "images/image1.jpg",
+      "file_size": 1024000,
+      "mime_type": "image/jpeg",
+      "public_url": "...",
+      "description": "...",
+      "tags": ["..."],
+      "status": "completed",
+      "uploaded_at": "...",
+      "updated_at": "...",
+      "file_size_mb": "0.98",
+      "has_ai_analysis": true,
+      "is_image": true
+    }
+  ],
   "pagination": {
     "current_page": 1,
     "per_page": 20,
-    "total_items": 150,
-    "total_pages": 8,
-    "has_next_page": true
+    "total_items": 1,
+    "total_pages": 1,
+    "has_next_page": false,
+    "has_prev_page": false,
+    "next_page": null,
+    "prev_page": null
+  },
+  "filters": {
+    "status": "all",
+    "sort_by": "uploaded_at",
+    "sort_order": "desc"
   },
   "summary": {
-    "total_files": 150,
-    "files_with_ai": 140,
-    "image_files": 145
+    "total_files": 1,
+    "page_count": 1,
+    "files_with_ai": 1,
+    "image_files": 1
   }
 }
 ```
-
-## 🚨 Error Handling
-
-The API uses standard HTTP status codes:
-
-- **200 OK** - Successful operation
-- **201 Created** - Resource created successfully
-- **207 Multi-Status** - Partial success (bulk operations)
-- **400 Bad Request** - Invalid request data
-- **404 Not Found** - Resource not found
-- **500 Internal Server Error** - Server error
 
 ### Error Response Format
 
 ```json
 {
   "success": false,
-  "error": "Error description",
-  "details": "Detailed error message"
+  "error": "Error message",
+  "details": "More specific error details"
 }
 ```
 
-## 🔍 Supported File Formats
-
-### Images (OpenAI Vision Compatible)
+## 🖼️ Supported Image Formats (OpenAI Vision Compatible)
 
 - **PNG** (.png)
 - **JPEG/JPG** (.jpg, .jpeg)
 - **GIF** (.gif)
 - **WebP** (.webp)
 
-### File Size Limits
+## 📏 File Size Limits
 
 - **Maximum file size**: 5MB per image
 - **Bulk upload limit**: 3 images per request
 
-## 🧪 Testing
+## 🩺 Health Checks
 
 ### Health Check
 
@@ -357,7 +399,13 @@ curl http://localhost:3000/api/test/test-connection
 curl http://localhost:3000/api/test/test-storage
 ```
 
-## 🔧 Development
+### Create Uploads Bucket (if not exists)
+
+```bash
+curl -X POST http://localhost:3000/api/test/create-bucket
+```
+
+## 🚀 Development & Deployment
 
 ### Start Development Server
 
@@ -377,8 +425,6 @@ Enable detailed logging by setting:
 NODE_ENV=development
 ```
 
-## 🚀 Deployment
-
 ### Production Build
 
 ```bash
@@ -391,19 +437,7 @@ Ensure all environment variables are properly configured for production:
 
 - Set `NODE_ENV=production`
 - Configure production Supabase credentials
-- Set appropriate CORS origins
-
-## 📝 License
-
-ISC License
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+- Ensure `SUPABASE_SERVICE_KEY` is secure and only used server-side
 
 ## 📞 Support
 

@@ -35,6 +35,10 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+// Import and use auth routes
+const authRoutes = require("./routes/auth");
+app.use("/api/auth", authRoutes);
+
 // Import and use upload routes
 const uploadRoutes = require("./routes/upload");
 app.use("/api/upload", uploadRoutes);

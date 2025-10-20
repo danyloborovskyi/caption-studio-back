@@ -26,13 +26,40 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Tag style prompts
+const TAG_STYLES = {
+  neutral: {
+    name: "Neutral",
+    instruction:
+      "Exactly 5 relevant, descriptive tags/keywords (single words or short phrases, professional and clear)",
+  },
+  playful: {
+    name: "Playful",
+    instruction:
+      "Exactly 5 fun, creative, engaging tags/keywords (can be playful phrases, trending terms, or expressive words)",
+  },
+  seo: {
+    name: "SEO",
+    instruction:
+      "Exactly 5 highly searchable SEO tags/keywords (focus on popular search terms, specific descriptors, and discoverability)",
+  },
+};
+
 // Function to analyze image with OpenAI Vision
-async function analyzeImageWithAI(imageUrl) {
+async function analyzeImageWithAI(imageUrl, tagStyle = "neutral") {
   try {
     // Validate image URL format
     if (!imageUrl || !imageUrl.includes("supabase")) {
       throw new Error("Invalid image URL");
     }
+
+    // Validate tag style
+    const validStyles = ["neutral", "playful", "seo"];
+    if (!validStyles.includes(tagStyle)) {
+      tagStyle = "neutral"; // Default to neutral if invalid style
+    }
+
+    const styleConfig = TAG_STYLES[tagStyle];
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -43,8 +70,8 @@ async function analyzeImageWithAI(imageUrl) {
             {
               type: "text",
               text: `Analyze this image and provide:
-1. A detailed, engaging description of what you see (1 sentence)
-2. Exactly 5 relevant tags/keywords (single words or short phrases)
+1. A detailed, engaging description of what you see (1-2 sentences)
+2. ${styleConfig.instruction}
 
 Format your response as JSON:
 {
@@ -74,6 +101,7 @@ Format your response as JSON:
         success: true,
         description: analysisResult.description,
         tags: analysisResult.tags || [],
+        tagStyle: tagStyle, // Include the tag style used
       };
     }
 
@@ -344,6 +372,7 @@ router.post("/image", upload.single("image"), async (req, res) => {
 router.post("/analyze/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const { tagStyle = "neutral" } = req.body; // Get tag style from request body
     const userId = req.user.id;
     const userToken = req.token;
 
@@ -367,7 +396,7 @@ router.post("/analyze/:id", async (req, res) => {
     }
 
     // Analyze image with OpenAI Vision
-    const aiResult = await analyzeImageWithAI(imageRecord.public_url);
+    const aiResult = await analyzeImageWithAI(imageRecord.public_url, tagStyle);
 
     if (!aiResult.success) {
       return res.status(500).json({
@@ -441,6 +470,7 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
     const userId = req.user.id;
     const userEmail = req.user.email;
     const userToken = req.token;
+    const { tagStyle = "neutral" } = req.body; // Get tag style from request body
 
     // Create user-specific Supabase client
     const supabase = getSupabaseClient(userToken);
@@ -517,7 +547,7 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
     }
 
     // Analyze image with OpenAI Vision
-    const aiResult = await analyzeImageWithAI(publicData.publicUrl);
+    const aiResult = await analyzeImageWithAI(publicData.publicUrl, tagStyle);
 
     // Update database with AI results and final status
     let updateData = {
@@ -643,6 +673,7 @@ router.post(
       const userId = req.user.id;
       const userEmail = req.user.email;
       const userToken = req.token;
+      const { tagStyle = "neutral" } = req.body; // Get tag style from request body
 
       // Create user-specific Supabase client
       const supabase = getSupabaseClient(userToken);
@@ -754,7 +785,10 @@ router.post(
           progressTracker.updateFile(originalname, "analyzing");
 
           // Analyze image with OpenAI Vision
-          const aiResult = await analyzeImageWithAI(publicData.publicUrl);
+          const aiResult = await analyzeImageWithAI(
+            publicData.publicUrl,
+            tagStyle
+          );
 
           // Try to update database with AI results
           if (aiResult.success) {
@@ -900,7 +934,7 @@ router.post(
 // POST route for bulk analysis of existing images
 router.post("/bulk-analyze", async (req, res) => {
   try {
-    const { ids } = req.body;
+    const { ids, tagStyle = "neutral" } = req.body; // Get tag style from request body
     const userId = req.user.id;
     const userToken = req.token;
 
@@ -951,7 +985,10 @@ router.post("/bulk-analyze", async (req, res) => {
         }
 
         // Analyze image with OpenAI Vision
-        const aiResult = await analyzeImageWithAI(imageRecord.public_url);
+        const aiResult = await analyzeImageWithAI(
+          imageRecord.public_url,
+          tagStyle
+        );
 
         if (!aiResult.success) {
           errors.push({

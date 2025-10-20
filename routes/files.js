@@ -487,12 +487,13 @@ router.get("/:id", async (req, res) => {
 router.post("/:id/regenerate", async (req, res) => {
   try {
     const { id } = req.params;
+    const { tagStyle = "neutral" } = req.body; // Get tag style from request body
     const userId = req.user.id;
     const userToken = req.token;
     const supabase = getSupabaseClient(userToken);
 
     console.log(
-      `🔄 User ${req.user.email} attempting to regenerate analysis for file ID: ${id}`
+      `🔄 User ${req.user.email} attempting to regenerate analysis for file ID: ${id} with style: ${tagStyle}`
     );
 
     // First, verify the file exists and user owns it
@@ -538,6 +539,32 @@ router.post("/:id/regenerate", async (req, res) => {
         apiKey: process.env.OPENAI_API_KEY,
       });
 
+      // Tag style prompts (same as in upload.js)
+      const TAG_STYLES = {
+        neutral: {
+          name: "Neutral",
+          instruction:
+            "Exactly 5 relevant, descriptive tags/keywords (single words or short phrases, professional and clear)",
+        },
+        playful: {
+          name: "Playful",
+          instruction:
+            "Exactly 5 fun, creative, engaging tags/keywords (can be playful phrases, trending terms, or expressive words)",
+        },
+        seo: {
+          name: "SEO",
+          instruction:
+            "Exactly 5 highly searchable SEO tags/keywords (focus on popular search terms, specific descriptors, and discoverability)",
+        },
+      };
+
+      // Validate tag style
+      const validStyles = ["neutral", "playful", "seo"];
+      const finalTagStyle = validStyles.includes(tagStyle)
+        ? tagStyle
+        : "neutral";
+      const styleConfig = TAG_STYLES[finalTagStyle];
+
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
@@ -547,8 +574,8 @@ router.post("/:id/regenerate", async (req, res) => {
               {
                 type: "text",
                 text: `Analyze this image and provide:
-1. A detailed, engaging description of what you see (1 sentence)
-2. Exactly 5 relevant tags/keywords (single words or short phrases)
+1. A detailed, engaging description of what you see (1-2 sentences)
+2. ${styleConfig.instruction}
 
 Format your response as JSON:
 {

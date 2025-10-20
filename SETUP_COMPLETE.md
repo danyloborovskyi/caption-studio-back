@@ -109,6 +109,7 @@ GET    /api/files/stats             - User statistics ✅
 GET    /api/files/search            - Search files (user-specific) ✅
 GET    /api/files/:id               - Get file by ID (ownership verified) ✅
 PATCH  /api/files/:id               - Update metadata (ownership verified) ✅
+POST   /api/files/:id/regenerate    - Regenerate AI analysis (ownership verified) ✅
 DELETE /api/files/:id               - Delete file (ownership verified) ✅
 ```
 

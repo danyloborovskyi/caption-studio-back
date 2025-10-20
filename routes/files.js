@@ -483,6 +483,177 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// POST route to regenerate AI analysis for a file
+router.post("/:id/regenerate", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
+    console.log(
+      `🔄 User ${req.user.email} attempting to regenerate analysis for file ID: ${id}`
+    );
+
+    // First, verify the file exists and user owns it
+    const { data: existingFile, error: fetchError } = await supabase
+      .from("uploaded_files")
+      .select("id, filename, public_url, mime_type, user_id")
+      .eq("id", id)
+      .eq("user_id", userId) // ⭐ Verify ownership
+      .single();
+
+    if (fetchError || !existingFile) {
+      return res.status(404).json({
+        success: false,
+        error: "File not found or access denied",
+      });
+    }
+
+    // Check if it's an image
+    if (!existingFile.mime_type?.startsWith("image/")) {
+      return res.status(400).json({
+        success: false,
+        error: "Only images can be analyzed",
+        message: "AI analysis is only available for image files",
+      });
+    }
+
+    // Check if public_url exists
+    if (!existingFile.public_url) {
+      return res.status(400).json({
+        success: false,
+        error: "No public URL available",
+        message: "Cannot analyze file without a public URL",
+      });
+    }
+
+    console.log(`🤖 Regenerating AI analysis for: ${existingFile.filename}`);
+
+    // Import the analyzeImageWithAI function from upload route
+    // For now, we'll duplicate the OpenAI call here
+    try {
+      const OpenAI = require("openai");
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Analyze this image and provide:
+1. A detailed, engaging description of what you see (1 sentence)
+2. Exactly 5 relevant tags/keywords (single words or short phrases)
+
+Format your response as JSON:
+{
+  "description": "Your description here",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
+}`,
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: existingFile.public_url,
+                },
+              },
+            ],
+          },
+        ],
+        max_tokens: 500,
+      });
+
+      const content = response.choices[0].message.content;
+
+      // Parse JSON response
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("Could not parse AI response");
+      }
+
+      const analysisResult = JSON.parse(jsonMatch[0]);
+
+      // Update the file with new AI results
+      const { data: updatedFile, error: updateError } = await supabase
+        .from("uploaded_files")
+        .update({
+          description: analysisResult.description,
+          tags: analysisResult.tags || [],
+          status: "completed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      console.log(
+        `✅ AI analysis regenerated successfully: ${existingFile.filename}`
+      );
+
+      // Format response
+      const formattedFile = {
+        id: updatedFile.id,
+        filename: updatedFile.filename,
+        file_path: updatedFile.file_path,
+        file_size: updatedFile.file_size,
+        mime_type: updatedFile.mime_type,
+        public_url: updatedFile.public_url,
+        description: updatedFile.description || null,
+        tags: updatedFile.tags || [],
+        status: updatedFile.status || "completed",
+        uploaded_at: updatedFile.uploaded_at,
+        updated_at: updatedFile.updated_at,
+        file_size_mb: updatedFile.file_size
+          ? (updatedFile.file_size / (1024 * 1024)).toFixed(2)
+          : null,
+        has_ai_analysis: true,
+        is_image: updatedFile.mime_type?.startsWith("image/") || false,
+      };
+
+      res.json({
+        success: true,
+        message: "AI analysis regenerated successfully",
+        data: formattedFile,
+      });
+    } catch (aiError) {
+      console.error("OpenAI analysis error:", aiError);
+
+      // Update status to failed
+      await supabase
+        .from("uploaded_files")
+        .update({
+          status: "failed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+
+      return res.status(500).json({
+        success: false,
+        error: "AI analysis failed",
+        details: aiError.message,
+        message:
+          "Failed to regenerate AI analysis. Please try again or check if OpenAI API key is valid.",
+      });
+    }
+  } catch (error) {
+    console.error("Regenerate analysis error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to regenerate analysis",
+      details: error.message,
+    });
+  }
+});
+
 // PATCH route to update file metadata (tags and description)
 router.patch("/:id", async (req, res) => {
   try {

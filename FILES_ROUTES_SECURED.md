@@ -281,13 +281,14 @@ When a user deletes a file, you'll see:
 All endpoints now require `Authorization: Bearer {token}` header:
 
 ```
-✅ GET    /api/files              - List YOUR files
-✅ GET    /api/files/images       - List YOUR images
-✅ GET    /api/files/stats        - YOUR stats
-✅ GET    /api/files/search       - Search YOUR files
-✅ GET    /api/files/:id          - Get YOUR file (ownership verified)
-✅ PATCH  /api/files/:id          - Update YOUR file metadata (ownership verified)
-✅ DELETE /api/files/:id          - Delete YOUR file (ownership verified)
+✅ GET    /api/files                - List YOUR files
+✅ GET    /api/files/images         - List YOUR images
+✅ GET    /api/files/stats          - YOUR stats
+✅ GET    /api/files/search         - Search YOUR files
+✅ GET    /api/files/:id            - Get YOUR file (ownership verified)
+✅ PATCH  /api/files/:id            - Update YOUR file metadata (ownership verified)
+✅ POST   /api/files/:id/regenerate - Regenerate AI analysis (ownership verified)
+✅ DELETE /api/files/:id            - Delete YOUR file (ownership verified)
 ```
 
 ---

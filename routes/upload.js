@@ -5,11 +5,16 @@ const OpenAI = require("openai");
 const { authenticateUser } = require("../middleware/auth");
 const router = express.Router();
 
-// Initialize Supabase client with anon key to respect RLS
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY // Use anon key to respect Row Level Security
-);
+// Helper function to create user-specific Supabase client
+function getSupabaseClient(accessToken) {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  });
+}
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -130,6 +135,107 @@ const upload = multer({
 // ==========================================
 router.use(authenticateUser);
 
+// 🔍 DIAGNOSTIC ENDPOINT - Test if token works with Supabase
+router.get("/test-auth", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userEmail = req.user.email;
+    const userToken = req.token;
+
+    console.log("🔍 Testing auth with Supabase...");
+    console.log("User ID:", userId);
+    console.log(
+      "Token preview:",
+      userToken ? userToken.substring(0, 50) + "..." : "MISSING"
+    );
+
+    // Create client with token
+    const supabase = getSupabaseClient(userToken);
+
+    // Try to query auth.users to see if token is recognized
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    console.log("Supabase auth.getUser() result:", {
+      user: user?.id,
+      error: authError?.message,
+    });
+
+    // Try a simple database SELECT query
+    const { data, error: dbError } = await supabase
+      .from("uploaded_files")
+      .select("count")
+      .limit(1);
+
+    // Try a test INSERT to see if RLS allows it
+    const { data: insertData, error: insertError } = await supabase
+      .from("uploaded_files")
+      .insert([
+        {
+          filename: "test-diagnostic.jpg",
+          file_path: "test/diagnostic.jpg",
+          file_size: 1000,
+          mime_type: "image/jpeg",
+          public_url: "https://test.com/diagnostic.jpg",
+          user_id: userId,
+          status: "test",
+        },
+      ])
+      .select();
+
+    console.log("Test INSERT result:", {
+      success: !insertError,
+      error: insertError?.message,
+      data: insertData,
+    });
+
+    // If insert succeeded, delete the test record
+    if (insertData && insertData.length > 0) {
+      await supabase.from("uploaded_files").delete().eq("id", insertData[0].id);
+      console.log("Test record cleaned up");
+    }
+
+    return res.json({
+      success: true,
+      auth_middleware: {
+        user_id: userId,
+        email: userEmail,
+        token_exists: !!userToken,
+      },
+      supabase_auth: {
+        user_id: user?.id,
+        email: user?.email,
+        error: authError?.message,
+      },
+      supabase_db_query: {
+        select_query: {
+          success: !dbError,
+          error: dbError?.message,
+        },
+        insert_query: {
+          success: !insertError,
+          error: insertError?.message,
+          details: insertError?.details || null,
+          hint: insertError?.hint || null,
+        },
+      },
+      diagnostic: {
+        token_in_middleware: !!userToken,
+        token_recognized_by_supabase: !!user,
+        tokens_match: user?.id === userId,
+        insert_works: !insertError,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // POST route for image upload
 router.post("/image", upload.single("image"), async (req, res) => {
   try {
@@ -140,9 +246,13 @@ router.post("/image", upload.single("image"), async (req, res) => {
       });
     }
 
-    // Get authenticated user ID
+    // Get authenticated user ID and token
     const userId = req.user.id;
     const userEmail = req.user.email;
+    const userToken = req.token;
+
+    // Create user-specific Supabase client
+    const supabase = getSupabaseClient(userToken);
 
     const { originalname, buffer, mimetype, size } = req.file;
 
@@ -230,6 +340,10 @@ router.post("/analyze/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const userToken = req.token;
+
+    // Create user-specific Supabase client
+    const supabase = getSupabaseClient(userToken);
 
     // Get the image record from database (filtered by user)
     const { data: imageRecord, error: fetchError } = await supabase
@@ -318,9 +432,13 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
       });
     }
 
-    // Get authenticated user ID
+    // Get authenticated user ID and token
     const userId = req.user.id;
     const userEmail = req.user.email;
+    const userToken = req.token;
+
+    // Create user-specific Supabase client
+    const supabase = getSupabaseClient(userToken);
 
     const { originalname, buffer, mimetype, size } = req.file;
 
@@ -483,9 +601,13 @@ router.post(
         });
       }
 
-      // Get authenticated user ID
+      // Get authenticated user ID and token
       const userId = req.user.id;
       const userEmail = req.user.email;
+      const userToken = req.token;
+
+      // Create user-specific Supabase client
+      const supabase = getSupabaseClient(userToken);
 
       console.log(
         `📤 User ${userEmail} uploading ${req.files.length} images...`
@@ -646,6 +768,10 @@ router.post("/bulk-analyze", async (req, res) => {
   try {
     const { ids } = req.body;
     const userId = req.user.id;
+    const userToken = req.token;
+
+    // Create user-specific Supabase client
+    const supabase = getSupabaseClient(userToken);
 
     if (!ids || !Array.isArray(ids)) {
       return res.status(400).json({

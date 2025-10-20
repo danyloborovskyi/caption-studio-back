@@ -1,16 +1,31 @@
 const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
+const { authenticateUser } = require("../middleware/auth");
 const router = express.Router();
 
-// Initialize Supabase client with service key for admin operations
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY // Use service key for bypassing RLS
-);
+// Helper function to create user-specific Supabase client
+function getSupabaseClient(accessToken) {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  });
+}
+
+// ==========================================
+// PROTECT ALL FILE ROUTES WITH AUTHENTICATION
+// ==========================================
+router.use(authenticateUser);
 
 // GET route to retrieve all uploaded files with comprehensive data
 router.get("/", async (req, res) => {
   try {
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
     const {
       page = 1,
       limit = 20,
@@ -24,8 +39,11 @@ router.get("/", async (req, res) => {
     const limitNum = parseInt(limit);
     const offset = (pageNum - 1) * limitNum;
 
-    // Build query
-    let query = supabase.from("uploaded_files").select("*", { count: "exact" });
+    // Build query - filtered by user_id
+    let query = supabase
+      .from("uploaded_files")
+      .select("*", { count: "exact" })
+      .eq("user_id", userId); // ⭐ Filter by user
 
     // Add status filter if provided
     if (status) {
@@ -112,6 +130,10 @@ router.get("/", async (req, res) => {
 // GET route to retrieve images only
 router.get("/images", async (req, res) => {
   try {
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
     const {
       page = 1,
       limit = 20,
@@ -124,10 +146,11 @@ router.get("/images", async (req, res) => {
     const limitNum = parseInt(limit);
     const offset = (pageNum - 1) * limitNum;
 
-    // Build query for images only
+    // Build query for images only - filtered by user_id
     let query = supabase
       .from("uploaded_files")
       .select("*", { count: "exact" })
+      .eq("user_id", userId) // ⭐ Filter by user
       .like("mime_type", "image%");
 
     // Add sorting
@@ -189,17 +212,23 @@ router.get("/images", async (req, res) => {
 // GET route to retrieve file statistics
 router.get("/stats", async (req, res) => {
   try {
-    // Get total counts
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
+    // Get total counts for current user
     const { count: totalFiles } = await supabase
       .from("uploaded_files")
-      .select("*", { count: "exact", head: true });
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId); // ⭐ Filter by user
 
     // Get counts by status (if status column exists)
     let statusCounts = {};
     try {
       const { data: statusData } = await supabase
         .from("uploaded_files")
-        .select("status");
+        .select("status")
+        .eq("user_id", userId); // ⭐ Filter by user
 
       if (statusData) {
         statusCounts = statusData.reduce((acc, file) => {
@@ -218,6 +247,7 @@ router.get("/stats", async (req, res) => {
       const { data: aiData } = await supabase
         .from("uploaded_files")
         .select("description, tags")
+        .eq("user_id", userId) // ⭐ Filter by user
         .not("description", "is", null);
 
       aiAnalysisCount = aiData?.length || 0;
@@ -228,7 +258,8 @@ router.get("/stats", async (req, res) => {
     // Get file type distribution
     const { data: typeData } = await supabase
       .from("uploaded_files")
-      .select("mime_type");
+      .select("mime_type")
+      .eq("user_id", userId); // ⭐ Filter by user
 
     const typeDistribution = (typeData || []).reduce((acc, file) => {
       const type = file.mime_type?.split("/")[0] || "unknown";
@@ -239,7 +270,8 @@ router.get("/stats", async (req, res) => {
     // Get total storage usage
     const { data: sizeData } = await supabase
       .from("uploaded_files")
-      .select("file_size");
+      .select("file_size")
+      .eq("user_id", userId); // ⭐ Filter by user
 
     const totalBytes = (sizeData || []).reduce((sum, file) => {
       return sum + (file.file_size || 0);
@@ -277,6 +309,10 @@ router.get("/stats", async (req, res) => {
 // GET route to search files
 router.get("/search", async (req, res) => {
   try {
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
     const { q: searchQuery, type, page = 1, limit = 20 } = req.query;
 
     if (!searchQuery) {
@@ -291,8 +327,11 @@ router.get("/search", async (req, res) => {
     const limitNum = parseInt(limit);
     const offset = (pageNum - 1) * limitNum;
 
-    // Build search query - get all results and filter client-side for better tag support
-    let query = supabase.from("uploaded_files").select("*");
+    // Build search query - get user's files and filter client-side for better tag support
+    let query = supabase
+      .from("uploaded_files")
+      .select("*")
+      .eq("user_id", userId); // ⭐ Filter by user
 
     // Add type filter if provided (this can be done at database level)
     if (type) {
@@ -383,11 +422,15 @@ router.get("/search", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
 
     const { data: file, error } = await supabase
       .from("uploaded_files")
       .select("*")
       .eq("id", id)
+      .eq("user_id", userId) // ⭐ Verify ownership
       .single();
 
     if (error) {
@@ -444,18 +487,26 @@ router.get("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
 
-    // First, get the file info from database
+    console.log(
+      `🗑️  User ${req.user.email} attempting to delete file ID: ${id}`
+    );
+
+    // First, get the file info from database and verify ownership
     const { data: fileData, error: fetchError } = await supabase
       .from("uploaded_files")
-      .select("file_path, filename, mime_type")
+      .select("file_path, filename, mime_type, user_id")
       .eq("id", id)
+      .eq("user_id", userId) // ⭐ Verify ownership
       .single();
 
     if (fetchError || !fileData) {
       return res.status(404).json({
         success: false,
-        error: "File not found",
+        error: "File not found or access denied",
       });
     }
 
@@ -478,6 +529,8 @@ router.delete("/:id", async (req, res) => {
     if (dbError) {
       throw dbError;
     }
+
+    console.log(`✅ File deleted successfully: ${fileData.filename}`);
 
     res.json({
       success: true,

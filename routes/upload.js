@@ -581,23 +581,25 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
   }
 });
 
-// POST route for bulk upload + AI analysis (up to 3 images)
+// POST route for bulk upload + AI analysis (up to 10 images, processed in parallel)
 router.post(
   "/bulk-upload-and-analyze",
-  upload.array("images", 3),
+  upload.array("images", 10),
   async (req, res) => {
     try {
       if (!req.files || req.files.length === 0) {
         return res.status(400).json({
           success: false,
           error: "No image files provided",
+          message: "Please upload at least one image file",
         });
       }
 
-      if (req.files.length > 3) {
+      if (req.files.length > 10) {
         return res.status(400).json({
           success: false,
-          error: "Maximum 3 images allowed per request",
+          error: "Maximum 10 images allowed per request",
+          message: "You can upload up to 10 images at once",
         });
       }
 
@@ -616,9 +618,11 @@ router.post(
       const results = [];
       const errors = [];
 
-      // Process each image
-      for (let i = 0; i < req.files.length; i++) {
-        const file = req.files[i];
+      console.log(`⚡ Processing ${req.files.length} images in parallel...`);
+      const startTime = Date.now();
+
+      // Process all images in parallel
+      const processingPromises = req.files.map(async (file, i) => {
         const { originalname, buffer, mimetype, size } = file;
 
         try {
@@ -631,6 +635,10 @@ router.post(
           // User-specific folder structure
           const filePath = `images/${userId}/${fileName}`;
 
+          console.log(
+            `  📤 [${i + 1}/${req.files.length}] Uploading ${originalname}...`
+          );
+
           // Upload to Supabase Storage
           const { data, error } = await supabase.storage
             .from("uploads")
@@ -641,17 +649,19 @@ router.post(
             });
 
           if (error) {
-            errors.push({
-              filename: originalname,
-              error: `Storage upload failed: ${error.message}`,
-            });
-            continue;
+            throw new Error(`Storage upload failed: ${error.message}`);
           }
 
           // Get public URL for the uploaded file
           const { data: publicData } = supabase.storage
             .from("uploads")
             .getPublicUrl(filePath);
+
+          console.log(
+            `  💾 [${i + 1}/${
+              req.files.length
+            }] Saving ${originalname} to database...`
+          );
 
           // Save basic file metadata to database with user_id
           const { data: dbData, error: dbError } = await supabase
@@ -672,12 +682,14 @@ router.post(
             .single();
 
           if (dbError) {
-            errors.push({
-              filename: originalname,
-              error: `Database save failed: ${dbError.message}`,
-            });
-            continue;
+            throw new Error(`Database save failed: ${dbError.message}`);
           }
+
+          console.log(
+            `  🤖 [${i + 1}/${
+              req.files.length
+            }] Analyzing ${originalname} with AI...`
+          );
 
           // Analyze image with OpenAI Vision
           const aiResult = await analyzeImageWithAI(publicData.publicUrl);
@@ -694,47 +706,87 @@ router.post(
                   updated_at: new Date().toISOString(),
                 })
                 .eq("id", dbData.id);
+
+              console.log(
+                `  ✅ [${i + 1}/${req.files.length}] Completed ${originalname}`
+              );
             } catch (updateError) {
               console.warn(
                 `Could not update AI results for ${originalname}:`,
                 updateError
               );
             }
+          } else {
+            console.log(
+              `  ⚠️  [${i + 1}/${
+                req.files.length
+              }] AI analysis failed for ${originalname}`
+            );
           }
 
-          // Add successful result
-          results.push({
-            id: dbData.id,
-            filename: originalname,
-            size: size,
-            type: mimetype,
-            path: filePath,
-            publicUrl: publicData.publicUrl,
-            description: aiResult.success ? aiResult.description : null,
-            tags: aiResult.success ? aiResult.tags : [],
-            status: aiResult.success ? "completed" : "failed",
-            uploadedAt: dbData.uploaded_at,
-            analyzedAt: new Date().toISOString(),
-            analysis: {
-              success: aiResult.success,
-              error: aiResult.success ? null : aiResult.error,
+          // Return successful result
+          return {
+            success: true,
+            data: {
+              id: dbData.id,
+              filename: originalname,
+              size: size,
+              type: mimetype,
+              path: filePath,
+              publicUrl: publicData.publicUrl,
+              description: aiResult.success ? aiResult.description : null,
+              tags: aiResult.success ? aiResult.tags : [],
+              status: aiResult.success ? "completed" : "failed",
+              uploadedAt: dbData.uploaded_at,
+              analyzedAt: new Date().toISOString(),
+              analysis: {
+                success: aiResult.success,
+                error: aiResult.success ? null : aiResult.error,
+              },
             },
-          });
+          };
         } catch (fileError) {
-          errors.push({
+          console.log(
+            `  ❌ [${i + 1}/${req.files.length}] Failed ${originalname}: ${
+              fileError.message
+            }`
+          );
+          return {
+            success: false,
             filename: originalname,
             error: `Processing failed: ${fileError.message}`,
+          };
+        }
+      });
+
+      // Wait for all images to be processed
+      const processedResults = await Promise.all(processingPromises);
+
+      // Separate successful uploads from errors
+      processedResults.forEach((result) => {
+        if (result.success) {
+          results.push(result.data);
+        } else {
+          errors.push({
+            filename: result.filename,
+            error: result.error,
           });
         }
-      }
+      });
+
+      const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(
+        `⚡ Completed ${results.length}/${req.files.length} images in ${processingTime}s`
+      );
 
       // Return results
       const response = {
         success: results.length > 0,
-        message: `Processed ${results.length} of ${req.files.length} images`,
+        message: `Processed ${results.length} of ${req.files.length} images in ${processingTime}s`,
         data: {
-          successful_uploads: results.length,
-          total_attempts: req.files.length,
+          successfulUploads: results.length,
+          totalAttempts: req.files.length,
+          processingTimeSeconds: parseFloat(processingTime),
           results: results,
           errors: errors,
         },

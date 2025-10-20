@@ -825,6 +825,302 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
+// PATCH route to bulk update multiple files at once
+router.patch("/", async (req, res) => {
+  try {
+    const { files } = req.body;
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
+    console.log(`✏️  User ${req.user.email} attempting to bulk update files`);
+
+    // Validate input
+    if (!files || !Array.isArray(files)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid request format",
+        message: "Request body must contain a 'files' array",
+      });
+    }
+
+    if (files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No files provided",
+        message: "Please provide at least one file to update",
+      });
+    }
+
+    if (files.length > 50) {
+      return res.status(400).json({
+        success: false,
+        error: "Too many files",
+        message: "Maximum 50 files can be updated at once",
+      });
+    }
+
+    console.log(`📦 Processing ${files.length} file updates in parallel...`);
+    const startTime = Date.now();
+
+    // Process all file updates in parallel
+    const updatePromises = files.map(async (fileUpdate, index) => {
+      try {
+        const { id, filename, description, tags } = fileUpdate;
+
+        // Validate that ID is provided
+        if (!id) {
+          return {
+            success: false,
+            id: null,
+            error: "File ID is required",
+            index: index,
+          };
+        }
+
+        // Validate that at least one field to update is provided
+        if (
+          filename === undefined &&
+          description === undefined &&
+          tags === undefined
+        ) {
+          return {
+            success: false,
+            id: id,
+            error: "No updates provided for this file",
+            index: index,
+          };
+        }
+
+        // Validate filename if provided
+        if (filename !== undefined) {
+          if (typeof filename !== "string" || filename.trim() === "") {
+            return {
+              success: false,
+              id: id,
+              error: "Filename must be a non-empty string",
+              index: index,
+            };
+          }
+          if (filename.length > 255) {
+            return {
+              success: false,
+              id: id,
+              error: "Filename too long (max 255 characters)",
+              index: index,
+            };
+          }
+        }
+
+        // Validate description if provided
+        if (description !== undefined && typeof description !== "string") {
+          return {
+            success: false,
+            id: id,
+            error: "Description must be a string",
+            index: index,
+          };
+        }
+
+        // Validate tags if provided
+        if (tags !== undefined) {
+          if (!Array.isArray(tags)) {
+            return {
+              success: false,
+              id: id,
+              error: "Tags must be an array of strings",
+              index: index,
+            };
+          }
+
+          // Validate each tag
+          if (
+            tags.some((tag) => typeof tag !== "string" || tag.trim() === "")
+          ) {
+            return {
+              success: false,
+              id: id,
+              error: "All tags must be non-empty strings",
+              index: index,
+            };
+          }
+
+          // Limit number of tags
+          if (tags.length > 10) {
+            return {
+              success: false,
+              id: id,
+              error: "Maximum 10 tags allowed",
+              index: index,
+            };
+          }
+        }
+
+        // Verify the file exists and user owns it
+        const { data: existingFile, error: fetchError } = await supabase
+          .from("uploaded_files")
+          .select("id, filename, user_id")
+          .eq("id", id)
+          .eq("user_id", userId) // ⭐ Verify ownership
+          .single();
+
+        if (fetchError || !existingFile) {
+          return {
+            success: false,
+            id: id,
+            error: "File not found or access denied",
+            index: index,
+          };
+        }
+
+        // Build update object
+        const updateData = {
+          updated_at: new Date().toISOString(),
+        };
+
+        if (filename !== undefined) {
+          updateData.filename = filename.trim();
+        }
+
+        if (description !== undefined) {
+          updateData.description = description;
+        }
+
+        if (tags !== undefined) {
+          // Trim and filter empty tags
+          updateData.tags = tags.map((tag) => tag.trim()).filter((tag) => tag);
+        }
+
+        // Update the file
+        const { data: updatedFile, error: updateError } = await supabase
+          .from("uploaded_files")
+          .update(updateData)
+          .eq("id", id)
+          .select()
+          .single();
+
+        if (updateError) {
+          return {
+            success: false,
+            id: id,
+            error: `Update failed: ${updateError.message}`,
+            index: index,
+          };
+        }
+
+        console.log(
+          `  ✅ [${index + 1}/${files.length}] Updated: ${updatedFile.filename}`
+        );
+
+        // Format response
+        const formattedFile = {
+          id: updatedFile.id,
+          filename: updatedFile.filename,
+          filePath: updatedFile.file_path,
+          fileSize: updatedFile.file_size,
+          mimeType: updatedFile.mime_type,
+          publicUrl: updatedFile.public_url,
+          description: updatedFile.description || null,
+          tags: updatedFile.tags || [],
+          status: updatedFile.status || "uploaded",
+          uploadedAt: updatedFile.uploaded_at,
+          updatedAt: updatedFile.updated_at,
+          fileSizeMb: updatedFile.file_size
+            ? (updatedFile.file_size / (1024 * 1024)).toFixed(2)
+            : null,
+          hasAiAnalysis: !!(
+            updatedFile.description ||
+            (updatedFile.tags && updatedFile.tags.length > 0)
+          ),
+          isImage: updatedFile.mime_type?.startsWith("image/") || false,
+        };
+
+        return {
+          success: true,
+          data: formattedFile,
+          index: index,
+        };
+      } catch (error) {
+        console.error(`Error updating file at index ${index}:`, error);
+        return {
+          success: false,
+          id: fileUpdate?.id || null,
+          error: error.message || "Unknown error",
+          index: index,
+        };
+      }
+    });
+
+    // Wait for all updates to complete
+    const results = await Promise.all(updatePromises);
+
+    // Separate successes and errors
+    const updated = results.filter((r) => r.success).map((r) => r.data);
+    const errors = results
+      .filter((r) => !r.success)
+      .map((r) => ({
+        id: r.id,
+        error: r.error,
+        index: r.index,
+      }));
+
+    const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+
+    console.log(
+      `✅ Bulk update completed: ${updated.length}/${files.length} successful in ${processingTime}s`
+    );
+
+    // Determine response status
+    if (updated.length === files.length) {
+      // All successful
+      res.json({
+        success: true,
+        message: `All ${files.length} files updated successfully`,
+        data: {
+          updated: updated,
+          totalUpdated: updated.length,
+          totalRequested: files.length,
+          processingTimeSeconds: parseFloat(processingTime),
+        },
+      });
+    } else if (updated.length > 0) {
+      // Partial success
+      res.status(207).json({
+        // 207 Multi-Status
+        success: true,
+        message: `${updated.length} of ${files.length} files updated successfully`,
+        data: {
+          updated: updated,
+          errors: errors,
+          totalUpdated: updated.length,
+          totalFailed: errors.length,
+          totalRequested: files.length,
+          processingTimeSeconds: parseFloat(processingTime),
+        },
+      });
+    } else {
+      // All failed
+      res.status(400).json({
+        success: false,
+        message: "All file updates failed",
+        data: {
+          errors: errors,
+          totalFailed: errors.length,
+          totalRequested: files.length,
+          processingTimeSeconds: parseFloat(processingTime),
+        },
+      });
+    }
+  } catch (error) {
+    console.error("Bulk update error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to process bulk update",
+      details: error.message,
+    });
+  }
+});
+
 // DELETE route to remove a file
 router.delete("/:id", async (req, res) => {
   try {

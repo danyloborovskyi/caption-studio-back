@@ -3,6 +3,11 @@ const multer = require("multer");
 const { createClient } = require("@supabase/supabase-js");
 const OpenAI = require("openai");
 const { authenticateUser } = require("../middleware/auth");
+const {
+  createProgressTracker,
+  getProgressTracker,
+} = require("../utils/progressTracker");
+const crypto = require("crypto");
 const router = express.Router();
 
 // Helper function to create user-specific Supabase client
@@ -581,6 +586,34 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
   }
 });
 
+// SSE endpoint for real-time upload progress
+router.get("/progress/:uploadId", authenticateUser, (req, res) => {
+  const { uploadId } = req.params;
+  const tracker = getProgressTracker(uploadId);
+
+  if (!tracker) {
+    return res.status(404).json({
+      success: false,
+      error: "Upload session not found",
+      message: "Invalid or expired upload ID",
+    });
+  }
+
+  // Set headers for SSE
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
+
+  // Add client to tracker
+  tracker.addClient(res);
+
+  // Handle client disconnect
+  req.on("close", () => {
+    tracker.removeClient(res);
+  });
+});
+
 // POST route for bulk upload + AI analysis (up to 10 images, processed in parallel)
 router.post(
   "/bulk-upload-and-analyze",
@@ -603,6 +636,9 @@ router.post(
         });
       }
 
+      // Generate unique upload ID
+      const uploadId = crypto.randomBytes(16).toString("hex");
+
       // Get authenticated user ID and token
       const userId = req.user.id;
       const userEmail = req.user.email;
@@ -612,9 +648,29 @@ router.post(
       const supabase = getSupabaseClient(userToken);
 
       console.log(
-        `📤 User ${userEmail} uploading ${req.files.length} images...`
+        `📤 User ${userEmail} uploading ${req.files.length} images... (ID: ${uploadId})`
       );
 
+      // Create progress tracker
+      const progressTracker = createProgressTracker(uploadId, req.files.length);
+
+      // Initialize file statuses
+      req.files.forEach((file) => {
+        progressTracker.updateFile(file.originalname, "pending");
+      });
+
+      // Return upload ID immediately so client can start listening to progress
+      res.json({
+        success: true,
+        message: "Upload started",
+        data: {
+          uploadId,
+          totalFiles: req.files.length,
+          progressUrl: `/api/upload/progress/${uploadId}`,
+        },
+      });
+
+      // Process files asynchronously
       const results = [];
       const errors = [];
 
@@ -639,6 +695,8 @@ router.post(
             `  📤 [${i + 1}/${req.files.length}] Uploading ${originalname}...`
           );
 
+          progressTracker.updateFile(originalname, "uploading");
+
           // Upload to Supabase Storage
           const { data, error } = await supabase.storage
             .from("uploads")
@@ -662,6 +720,8 @@ router.post(
               req.files.length
             }] Saving ${originalname} to database...`
           );
+
+          progressTracker.updateFile(originalname, "saving");
 
           // Save basic file metadata to database with user_id
           const { data: dbData, error: dbError } = await supabase
@@ -691,6 +751,8 @@ router.post(
             }] Analyzing ${originalname} with AI...`
           );
 
+          progressTracker.updateFile(originalname, "analyzing");
+
           // Analyze image with OpenAI Vision
           const aiResult = await analyzeImageWithAI(publicData.publicUrl);
 
@@ -710,6 +772,22 @@ router.post(
               console.log(
                 `  ✅ [${i + 1}/${req.files.length}] Completed ${originalname}`
               );
+
+              const fileData = {
+                id: dbData.id,
+                filename: originalname,
+                size: size,
+                type: mimetype,
+                path: filePath,
+                publicUrl: publicData.publicUrl,
+                description: aiResult.description,
+                tags: aiResult.tags,
+                status: "completed",
+                uploadedAt: dbData.uploaded_at,
+                analyzedAt: new Date().toISOString(),
+              };
+
+              progressTracker.updateFile(originalname, "completed", fileData);
             } catch (updateError) {
               console.warn(
                 `Could not update AI results for ${originalname}:`,
@@ -722,6 +800,23 @@ router.post(
                 req.files.length
               }] AI analysis failed for ${originalname}`
             );
+
+            const fileData = {
+              id: dbData.id,
+              filename: originalname,
+              size: size,
+              type: mimetype,
+              path: filePath,
+              publicUrl: publicData.publicUrl,
+              description: null,
+              tags: [],
+              status: "failed",
+              uploadedAt: dbData.uploaded_at,
+              analyzedAt: new Date().toISOString(),
+              error: aiResult.error,
+            };
+
+            progressTracker.updateFile(originalname, "completed", fileData);
           }
 
           // Return successful result
@@ -751,6 +846,12 @@ router.post(
               fileError.message
             }`
           );
+
+          progressTracker.updateFile(originalname, "failed", {
+            filename: originalname,
+            error: fileError.message,
+          });
+
           return {
             success: false,
             filename: originalname,
@@ -779,38 +880,19 @@ router.post(
         `⚡ Completed ${results.length}/${req.files.length} images in ${processingTime}s`
       );
 
-      // Return results
-      const response = {
-        success: results.length > 0,
-        message: `Processed ${results.length} of ${req.files.length} images in ${processingTime}s`,
-        data: {
-          successfulUploads: results.length,
-          totalAttempts: req.files.length,
-          processingTimeSeconds: parseFloat(processingTime),
-          results: results,
-          errors: errors,
-        },
-      };
-
-      // Return appropriate status code
-      if (results.length === 0) {
-        return res.status(500).json({
-          ...response,
-          success: false,
-          message: "All uploads failed",
-        });
-      } else if (errors.length > 0) {
-        return res.status(207).json(response); // 207 Multi-Status
-      } else {
-        return res.status(200).json(response);
-      }
+      // Send completion event to all connected clients
+      progressTracker.complete(results, errors);
     } catch (error) {
       console.error("Bulk upload and analysis error:", error);
-      res.status(500).json({
-        success: false,
-        error: "Failed to process bulk upload and analysis",
-        details: error.message,
-      });
+
+      // If error happens before response was sent
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: "Failed to process bulk upload and analysis",
+          details: error.message,
+        });
+      }
     }
   }
 );

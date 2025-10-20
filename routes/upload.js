@@ -2,12 +2,13 @@ const express = require("express");
 const multer = require("multer");
 const { createClient } = require("@supabase/supabase-js");
 const OpenAI = require("openai");
+const { authenticateUser } = require("../middleware/auth");
 const router = express.Router();
 
-// Initialize Supabase client with service key for admin operations
+// Initialize Supabase client with anon key to respect RLS
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY // Use service key for bypassing RLS
+  process.env.SUPABASE_ANON_KEY // Use anon key to respect Row Level Security
 );
 
 // Initialize OpenAI client
@@ -119,10 +120,15 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit for images
+    fileSize: 10 * 1024 * 1024, // 10MB limit for images
   },
   fileFilter: fileFilter,
 });
+
+// ==========================================
+// PROTECT ALL UPLOAD ROUTES WITH AUTHENTICATION
+// ==========================================
+router.use(authenticateUser);
 
 // POST route for image upload
 router.post("/image", upload.single("image"), async (req, res) => {
@@ -134,13 +140,22 @@ router.post("/image", upload.single("image"), async (req, res) => {
       });
     }
 
+    // Get authenticated user ID
+    const userId = req.user.id;
+    const userEmail = req.user.email;
+
     const { originalname, buffer, mimetype, size } = req.file;
+
+    console.log(`📤 User ${userEmail} (${userId}) uploading image...`);
 
     // Generate unique filename
     const timestamp = Date.now();
+    const randomString = Math.random().toString(36).substring(2, 8);
     const fileExtension = originalname.split(".").pop();
-    const fileName = `image_${timestamp}.${fileExtension}`;
-    const filePath = `images/${fileName}`;
+    const fileName = `${timestamp}-${randomString}.${fileExtension}`;
+
+    // User-specific folder structure
+    const filePath = `images/${userId}/${fileName}`;
 
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
@@ -165,7 +180,7 @@ router.post("/image", upload.single("image"), async (req, res) => {
       .from("uploads")
       .getPublicUrl(filePath);
 
-    // Save file metadata to database using service key (bypasses RLS)
+    // Save file metadata to database with user_id
     const { data: dbData, error: dbError } = await supabase
       .from("uploaded_files")
       .insert([
@@ -175,6 +190,8 @@ router.post("/image", upload.single("image"), async (req, res) => {
           file_size: size,
           mime_type: mimetype,
           public_url: publicData.publicUrl,
+          user_id: userId, // Store user ID
+          status: "uploaded",
           uploaded_at: new Date().toISOString(),
         },
       ])
@@ -212,18 +229,20 @@ router.post("/image", upload.single("image"), async (req, res) => {
 router.post("/analyze/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
 
-    // Get the image record from database
+    // Get the image record from database (filtered by user)
     const { data: imageRecord, error: fetchError } = await supabase
       .from("uploaded_files")
       .select("*")
       .eq("id", id)
+      .eq("user_id", userId) // Ensure user owns this file
       .single();
 
     if (fetchError || !imageRecord) {
       return res.status(404).json({
         success: false,
-        error: "Image not found",
+        error: "Image not found or access denied",
         details: fetchError?.message,
       });
     }
@@ -299,13 +318,22 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
       });
     }
 
+    // Get authenticated user ID
+    const userId = req.user.id;
+    const userEmail = req.user.email;
+
     const { originalname, buffer, mimetype, size } = req.file;
+
+    console.log(`📤 User ${userEmail} uploading and analyzing image...`);
 
     // Generate unique filename
     const timestamp = Date.now();
+    const randomString = Math.random().toString(36).substring(2, 8);
     const fileExtension = originalname.split(".").pop();
-    const fileName = `image_${timestamp}.${fileExtension}`;
-    const filePath = `images/${fileName}`;
+    const fileName = `${timestamp}-${randomString}.${fileExtension}`;
+
+    // User-specific folder structure
+    const filePath = `images/${userId}/${fileName}`;
 
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
@@ -330,7 +358,7 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
       .from("uploads")
       .getPublicUrl(filePath);
 
-    // Save basic file metadata to database with initial status
+    // Save basic file metadata to database with initial status and user_id
     const { data: dbData, error: dbError } = await supabase
       .from("uploaded_files")
       .insert([
@@ -340,6 +368,8 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
           file_size: size,
           mime_type: mimetype,
           public_url: publicData.publicUrl,
+          user_id: userId, // Store user ID
+          status: "processing",
           uploaded_at: new Date().toISOString(),
         },
       ])
@@ -453,6 +483,14 @@ router.post(
         });
       }
 
+      // Get authenticated user ID
+      const userId = req.user.id;
+      const userEmail = req.user.email;
+
+      console.log(
+        `📤 User ${userEmail} uploading ${req.files.length} images...`
+      );
+
       const results = [];
       const errors = [];
 
@@ -464,9 +502,12 @@ router.post(
         try {
           // Generate unique filename
           const timestamp = Date.now();
+          const randomString = Math.random().toString(36).substring(2, 8);
           const fileExtension = originalname.split(".").pop();
-          const fileName = `image_${timestamp}_${i}.${fileExtension}`;
-          const filePath = `images/${fileName}`;
+          const fileName = `${timestamp}-${randomString}-${i}.${fileExtension}`;
+
+          // User-specific folder structure
+          const filePath = `images/${userId}/${fileName}`;
 
           // Upload to Supabase Storage
           const { data, error } = await supabase.storage
@@ -490,7 +531,7 @@ router.post(
             .from("uploads")
             .getPublicUrl(filePath);
 
-          // Save basic file metadata to database
+          // Save basic file metadata to database with user_id
           const { data: dbData, error: dbError } = await supabase
             .from("uploaded_files")
             .insert([
@@ -500,6 +541,8 @@ router.post(
                 file_size: size,
                 mime_type: mimetype,
                 public_url: publicData.publicUrl,
+                user_id: userId, // Store user ID
+                status: "processing",
                 uploaded_at: new Date().toISOString(),
               },
             ])
@@ -602,6 +645,7 @@ router.post(
 router.post("/bulk-analyze", async (req, res) => {
   try {
     const { ids } = req.body;
+    const userId = req.user.id;
 
     if (!ids || !Array.isArray(ids)) {
       return res.status(400).json({
@@ -630,17 +674,18 @@ router.post("/bulk-analyze", async (req, res) => {
     // Process each image ID
     for (const id of ids) {
       try {
-        // Get the image record from database
+        // Get the image record from database (filtered by user)
         const { data: imageRecord, error: fetchError } = await supabase
           .from("uploaded_files")
           .select("*")
           .eq("id", id)
+          .eq("user_id", userId) // Ensure user owns this file
           .single();
 
         if (fetchError || !imageRecord) {
           errors.push({
             id: id,
-            error: "Image not found",
+            error: "Image not found or access denied",
           });
           continue;
         }

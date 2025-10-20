@@ -100,14 +100,16 @@ POST   /api/upload/bulk-analyze             - Bulk analyze (max 3)
 GET    /api/upload/test-auth                - Diagnostic endpoint
 ```
 
-### Files (Update these next!)
+### Files (Fully Secured!)
 
 ```
-GET    /api/files                   - List files (needs user filter)
-GET    /api/files/:id               - Get file by ID (needs ownership check)
-PUT    /api/files/:id               - Update file (needs ownership check)
-DELETE /api/files/:id               - Delete file (needs ownership check)
-GET    /api/files/search            - Search files (needs user filter)
+GET    /api/files                   - List files (user-specific) ✅
+GET    /api/files/images            - List images (user-specific) ✅
+GET    /api/files/stats             - User statistics ✅
+GET    /api/files/search            - Search files (user-specific) ✅
+GET    /api/files/:id               - Get file by ID (ownership verified) ✅
+PATCH  /api/files/:id               - Update metadata (ownership verified) ✅
+DELETE /api/files/:id               - Delete file (ownership verified) ✅
 ```
 
 ---

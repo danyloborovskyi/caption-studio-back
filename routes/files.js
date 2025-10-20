@@ -483,6 +483,150 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// PATCH route to update file metadata (tags and description)
+router.patch("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { description, tags } = req.body;
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
+    console.log(
+      `✏️  User ${req.user.email} attempting to update file ID: ${id}`
+    );
+
+    // Validate input
+    if (description === undefined && tags === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: "No updates provided",
+        message:
+          "Please provide at least one field to update: description or tags",
+      });
+    }
+
+    // Validate tags if provided
+    if (tags !== undefined) {
+      if (!Array.isArray(tags)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid tags format",
+          message: "Tags must be an array of strings",
+        });
+      }
+
+      // Validate each tag
+      if (tags.some((tag) => typeof tag !== "string" || tag.trim() === "")) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid tags",
+          message: "All tags must be non-empty strings",
+        });
+      }
+
+      // Limit number of tags
+      if (tags.length > 10) {
+        return res.status(400).json({
+          success: false,
+          error: "Too many tags",
+          message: "Maximum 10 tags allowed",
+        });
+      }
+    }
+
+    // Validate description if provided
+    if (description !== undefined && typeof description !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid description format",
+        message: "Description must be a string",
+      });
+    }
+
+    // First, verify the file exists and user owns it
+    const { data: existingFile, error: fetchError } = await supabase
+      .from("uploaded_files")
+      .select("id, filename, user_id")
+      .eq("id", id)
+      .eq("user_id", userId) // ⭐ Verify ownership
+      .single();
+
+    if (fetchError || !existingFile) {
+      return res.status(404).json({
+        success: false,
+        error: "File not found or access denied",
+      });
+    }
+
+    // Build update object
+    const updateData = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (description !== undefined) {
+      updateData.description = description;
+    }
+
+    if (tags !== undefined) {
+      // Trim and filter empty tags
+      updateData.tags = tags.map((tag) => tag.trim()).filter((tag) => tag);
+    }
+
+    // Update the file
+    const { data: updatedFile, error: updateError } = await supabase
+      .from("uploaded_files")
+      .update(updateData)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    console.log(
+      `✅ File metadata updated successfully: ${existingFile.filename}`
+    );
+
+    // Format response
+    const formattedFile = {
+      id: updatedFile.id,
+      filename: updatedFile.filename,
+      file_path: updatedFile.file_path,
+      file_size: updatedFile.file_size,
+      mime_type: updatedFile.mime_type,
+      public_url: updatedFile.public_url,
+      description: updatedFile.description || null,
+      tags: updatedFile.tags || [],
+      status: updatedFile.status || "uploaded",
+      uploaded_at: updatedFile.uploaded_at,
+      updated_at: updatedFile.updated_at,
+      file_size_mb: updatedFile.file_size
+        ? (updatedFile.file_size / (1024 * 1024)).toFixed(2)
+        : null,
+      has_ai_analysis: !!(
+        updatedFile.description ||
+        (updatedFile.tags && updatedFile.tags.length > 0)
+      ),
+      is_image: updatedFile.mime_type?.startsWith("image/") || false,
+    };
+
+    res.json({
+      success: true,
+      message: "File metadata updated successfully",
+      data: formattedFile,
+    });
+  } catch (error) {
+    console.error("Update file error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to update file metadata",
+      details: error.message,
+    });
+  }
+});
+
 // DELETE route to remove a file
 router.delete("/:id", async (req, res) => {
   try {

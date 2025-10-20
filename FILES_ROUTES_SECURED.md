@@ -286,6 +286,7 @@ All endpoints now require `Authorization: Bearer {token}` header:
 ✅ GET    /api/files/stats        - YOUR stats
 ✅ GET    /api/files/search       - Search YOUR files
 ✅ GET    /api/files/:id          - Get YOUR file (ownership verified)
+✅ PATCH  /api/files/:id          - Update YOUR file metadata (ownership verified)
 ✅ DELETE /api/files/:id          - Delete YOUR file (ownership verified)
 ```
 

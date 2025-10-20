@@ -483,6 +483,332 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// POST route to bulk regenerate AI analysis for multiple files
+router.post("/regenerate", async (req, res) => {
+  try {
+    const { ids, tagStyle = "neutral" } = req.body;
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
+    console.log(
+      `🔄 User ${req.user.email} attempting to bulk regenerate AI analysis`
+    );
+
+    // Validate input
+    if (!ids || !Array.isArray(ids)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid request format",
+        message: "Request body must contain an 'ids' array",
+      });
+    }
+
+    if (ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No files provided",
+        message: "Please provide at least one file ID to regenerate",
+      });
+    }
+
+    if (ids.length > 20) {
+      return res.status(400).json({
+        success: false,
+        error: "Too many files",
+        message: "Maximum 20 files can be regenerated at once",
+      });
+    }
+
+    // Validate tag style
+    const validStyles = ["neutral", "playful", "seo"];
+    const finalTagStyle = validStyles.includes(tagStyle) ? tagStyle : "neutral";
+
+    console.log(
+      `🤖 Processing ${ids.length} file regenerations in parallel with style: ${finalTagStyle}...`
+    );
+    const startTime = Date.now();
+
+    // Initialize OpenAI
+    const OpenAI = require("openai");
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    // Tag style prompts
+    const TAG_STYLES = {
+      neutral: {
+        name: "Neutral",
+        instruction:
+          "Exactly 5 relevant, descriptive tags/keywords (single words or short phrases, professional and clear)",
+      },
+      playful: {
+        name: "Playful",
+        instruction:
+          "Exactly 5 fun, creative, engaging tags/keywords (can be playful phrases, trending terms, or expressive words)",
+      },
+      seo: {
+        name: "SEO",
+        instruction:
+          "Exactly 5 highly searchable SEO tags/keywords (focus on popular search terms, specific descriptors, and discoverability)",
+      },
+    };
+
+    const styleConfig = TAG_STYLES[finalTagStyle];
+
+    // Process all file regenerations in parallel
+    const regeneratePromises = ids.map(async (id, index) => {
+      try {
+        // Validate ID
+        if (!id) {
+          return {
+            success: false,
+            id: null,
+            error: "File ID is required",
+            index: index,
+          };
+        }
+
+        // Get file info and verify ownership
+        const { data: existingFile, error: fetchError } = await supabase
+          .from("uploaded_files")
+          .select("id, filename, public_url, mime_type, user_id")
+          .eq("id", id)
+          .eq("user_id", userId) // ⭐ Verify ownership
+          .single();
+
+        if (fetchError || !existingFile) {
+          return {
+            success: false,
+            id: id,
+            error: "File not found or access denied",
+            index: index,
+          };
+        }
+
+        // Check if it's an image
+        if (!existingFile.mime_type?.startsWith("image/")) {
+          return {
+            success: false,
+            id: id,
+            error: "Only images can be analyzed",
+            index: index,
+          };
+        }
+
+        // Check if public_url exists
+        if (!existingFile.public_url) {
+          return {
+            success: false,
+            id: id,
+            error: "No public URL available",
+            index: index,
+          };
+        }
+
+        console.log(
+          `  🤖 [${index + 1}/${ids.length}] Regenerating: ${
+            existingFile.filename
+          }`
+        );
+
+        // Analyze image with OpenAI Vision
+        try {
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: `Analyze this image and provide:
+1. A detailed, engaging description of what you see (1-2 sentences)
+2. ${styleConfig.instruction}
+
+Format your response as JSON:
+{
+  "description": "Your description here",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
+}`,
+                  },
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: existingFile.public_url,
+                    },
+                  },
+                ],
+              },
+            ],
+            max_tokens: 500,
+          });
+
+          const content = response.choices[0].message.content;
+
+          // Parse JSON response
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) {
+            throw new Error("Could not parse AI response");
+          }
+
+          const analysisResult = JSON.parse(jsonMatch[0]);
+
+          // Update the file with new AI results
+          const { data: updatedFile, error: updateError } = await supabase
+            .from("uploaded_files")
+            .update({
+              description: analysisResult.description,
+              tags: analysisResult.tags || [],
+              status: "completed",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", id)
+            .select()
+            .single();
+
+          if (updateError) {
+            throw updateError;
+          }
+
+          console.log(
+            `  ✅ [${index + 1}/${ids.length}] Completed: ${
+              existingFile.filename
+            }`
+          );
+
+          // Format response
+          const formattedFile = {
+            id: updatedFile.id,
+            filename: updatedFile.filename,
+            filePath: updatedFile.file_path,
+            fileSize: updatedFile.file_size,
+            mimeType: updatedFile.mime_type,
+            publicUrl: updatedFile.public_url,
+            description: updatedFile.description || null,
+            tags: updatedFile.tags || [],
+            status: updatedFile.status || "completed",
+            uploadedAt: updatedFile.uploaded_at,
+            updatedAt: updatedFile.updated_at,
+            fileSizeMb: updatedFile.file_size
+              ? (updatedFile.file_size / (1024 * 1024)).toFixed(2)
+              : null,
+            hasAiAnalysis: true,
+            isImage: updatedFile.mime_type?.startsWith("image/") || false,
+          };
+
+          return {
+            success: true,
+            data: formattedFile,
+            index: index,
+          };
+        } catch (aiError) {
+          console.error(
+            `  ⚠️  [${index + 1}/${ids.length}] AI analysis failed for ${
+              existingFile.filename
+            }:`,
+            aiError.message
+          );
+
+          // Update status to failed
+          await supabase
+            .from("uploaded_files")
+            .update({
+              status: "failed",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", id);
+
+          return {
+            success: false,
+            id: id,
+            error: `AI analysis failed: ${aiError.message}`,
+            index: index,
+          };
+        }
+      } catch (error) {
+        console.error(`Error regenerating file at index ${index}:`, error);
+        return {
+          success: false,
+          id: id || null,
+          error: error.message || "Unknown error",
+          index: index,
+        };
+      }
+    });
+
+    // Wait for all regenerations to complete
+    const results = await Promise.all(regeneratePromises);
+
+    // Separate successes and errors
+    const regenerated = results.filter((r) => r.success).map((r) => r.data);
+    const errors = results
+      .filter((r) => !r.success)
+      .map((r) => ({
+        id: r.id,
+        error: r.error,
+        index: r.index,
+      }));
+
+    const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+
+    console.log(
+      `✅ Bulk regenerate completed: ${regenerated.length}/${ids.length} successful in ${processingTime}s`
+    );
+
+    // Determine response status
+    if (regenerated.length === ids.length) {
+      // All successful
+      res.json({
+        success: true,
+        message: `All ${ids.length} files regenerated successfully`,
+        data: {
+          regenerated: regenerated,
+          totalRegenerated: regenerated.length,
+          totalRequested: ids.length,
+          tagStyle: finalTagStyle,
+          processingTimeSeconds: parseFloat(processingTime),
+        },
+      });
+    } else if (regenerated.length > 0) {
+      // Partial success
+      res.status(207).json({
+        // 207 Multi-Status
+        success: true,
+        message: `${regenerated.length} of ${ids.length} files regenerated successfully`,
+        data: {
+          regenerated: regenerated,
+          errors: errors,
+          totalRegenerated: regenerated.length,
+          totalFailed: errors.length,
+          totalRequested: ids.length,
+          tagStyle: finalTagStyle,
+          processingTimeSeconds: parseFloat(processingTime),
+        },
+      });
+    } else {
+      // All failed
+      res.status(400).json({
+        success: false,
+        message: "All file regenerations failed",
+        data: {
+          errors: errors,
+          totalFailed: errors.length,
+          totalRequested: ids.length,
+          processingTimeSeconds: parseFloat(processingTime),
+        },
+      });
+    }
+  } catch (error) {
+    console.error("Bulk regenerate error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to process bulk regenerate",
+      details: error.message,
+    });
+  }
+});
+
 // POST route to regenerate AI analysis for a file
 router.post("/:id/regenerate", async (req, res) => {
   try {

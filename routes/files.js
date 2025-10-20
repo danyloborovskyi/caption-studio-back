@@ -1121,6 +1121,208 @@ router.patch("/", async (req, res) => {
   }
 });
 
+// DELETE route to bulk delete multiple files at once
+router.delete("/", async (req, res) => {
+  try {
+    const { ids } = req.body;
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
+    console.log(`🗑️  User ${req.user.email} attempting to bulk delete files`);
+
+    // Validate input
+    if (!ids || !Array.isArray(ids)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid request format",
+        message: "Request body must contain an 'ids' array",
+      });
+    }
+
+    if (ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No files provided",
+        message: "Please provide at least one file ID to delete",
+      });
+    }
+
+    if (ids.length > 100) {
+      return res.status(400).json({
+        success: false,
+        error: "Too many files",
+        message: "Maximum 100 files can be deleted at once",
+      });
+    }
+
+    console.log(`🗑️  Processing ${ids.length} file deletions in parallel...`);
+    const startTime = Date.now();
+
+    // Process all file deletions in parallel
+    const deletePromises = ids.map(async (id, index) => {
+      try {
+        // Validate ID
+        if (!id) {
+          return {
+            success: false,
+            id: null,
+            error: "File ID is required",
+            index: index,
+          };
+        }
+
+        // Get file info and verify ownership
+        const { data: fileData, error: fetchError } = await supabase
+          .from("uploaded_files")
+          .select("id, file_path, filename, mime_type, user_id")
+          .eq("id", id)
+          .eq("user_id", userId) // ⭐ Verify ownership
+          .single();
+
+        if (fetchError || !fileData) {
+          return {
+            success: false,
+            id: id,
+            error: "File not found or access denied",
+            index: index,
+          };
+        }
+
+        // Delete from Supabase Storage
+        let storageDeleted = false;
+        try {
+          const { error: storageError } = await supabase.storage
+            .from("uploads")
+            .remove([fileData.file_path]);
+
+          storageDeleted = !storageError;
+
+          if (storageError) {
+            console.warn(
+              `  ⚠️  Storage delete failed for ${fileData.filename}:`,
+              storageError.message
+            );
+            // Continue with database deletion even if storage fails
+          }
+        } catch (storageError) {
+          console.warn(
+            `  ⚠️  Storage delete error for ${fileData.filename}:`,
+            storageError
+          );
+        }
+
+        // Delete from database
+        const { error: dbError } = await supabase
+          .from("uploaded_files")
+          .delete()
+          .eq("id", id);
+
+        if (dbError) {
+          return {
+            success: false,
+            id: id,
+            error: `Database deletion failed: ${dbError.message}`,
+            index: index,
+          };
+        }
+
+        console.log(
+          `  ✅ [${index + 1}/${ids.length}] Deleted: ${fileData.filename}`
+        );
+
+        return {
+          success: true,
+          data: {
+            id: fileData.id,
+            filename: fileData.filename,
+            mimeType: fileData.mime_type,
+            storageDeleted: storageDeleted,
+            databaseDeleted: true,
+          },
+          index: index,
+        };
+      } catch (error) {
+        console.error(`Error deleting file at index ${index}:`, error);
+        return {
+          success: false,
+          id: id || null,
+          error: error.message || "Unknown error",
+          index: index,
+        };
+      }
+    });
+
+    // Wait for all deletions to complete
+    const results = await Promise.all(deletePromises);
+
+    // Separate successes and errors
+    const deleted = results.filter((r) => r.success).map((r) => r.data);
+    const errors = results
+      .filter((r) => !r.success)
+      .map((r) => ({
+        id: r.id,
+        error: r.error,
+        index: r.index,
+      }));
+
+    const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+
+    console.log(
+      `✅ Bulk delete completed: ${deleted.length}/${ids.length} successful in ${processingTime}s`
+    );
+
+    // Determine response status
+    if (deleted.length === ids.length) {
+      // All successful
+      res.json({
+        success: true,
+        message: `All ${ids.length} files deleted successfully`,
+        data: {
+          deleted: deleted,
+          totalDeleted: deleted.length,
+          totalRequested: ids.length,
+          processingTimeSeconds: parseFloat(processingTime),
+        },
+      });
+    } else if (deleted.length > 0) {
+      // Partial success
+      res.status(207).json({
+        // 207 Multi-Status
+        success: true,
+        message: `${deleted.length} of ${ids.length} files deleted successfully`,
+        data: {
+          deleted: deleted,
+          errors: errors,
+          totalDeleted: deleted.length,
+          totalFailed: errors.length,
+          totalRequested: ids.length,
+          processingTimeSeconds: parseFloat(processingTime),
+        },
+      });
+    } else {
+      // All failed
+      res.status(400).json({
+        success: false,
+        message: "All file deletions failed",
+        data: {
+          errors: errors,
+          totalFailed: errors.length,
+          totalRequested: ids.length,
+          processingTimeSeconds: parseFloat(processingTime),
+        },
+      });
+    }
+  } catch (error) {
+    console.error("Bulk delete error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to process bulk delete",
+      details: error.message,
+    });
+  }
+});
+
 // DELETE route to remove a file
 router.delete("/:id", async (req, res) => {
   try {

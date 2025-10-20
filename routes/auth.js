@@ -70,17 +70,20 @@ router.post("/signup", async (req, res) => {
         user: {
           id: data.user.id,
           email: data.user.email,
-          created_at: data.user.created_at,
-          email_confirmed: !!data.user.confirmed_at,
+          firstName: data.user.user_metadata?.first_name || null,
+          lastName: data.user.user_metadata?.last_name || null,
+          fullName: data.user.user_metadata?.full_name || null,
+          createdAt: data.user.created_at,
+          emailConfirmed: !!data.user.confirmed_at,
         },
         session: data.session
           ? {
-              access_token: data.session.access_token,
-              refresh_token: data.session.refresh_token,
-              expires_at: data.session.expires_at,
+              accessToken: data.session.access_token,
+              refreshToken: data.session.refresh_token,
+              expiresAt: data.session.expires_at,
             }
           : null,
-        email_confirmation_required: emailConfirmationRequired,
+        emailConfirmationRequired: emailConfirmationRequired,
       },
     });
   } catch (error) {
@@ -126,19 +129,18 @@ router.post("/login", async (req, res) => {
         user: {
           id: data.user.id,
           email: data.user.email,
-          email_confirmed: !!data.user.confirmed_at,
-          first_name: data.user.user_metadata?.first_name || null,
-          last_name: data.user.user_metadata?.last_name || null,
-          full_name: data.user.user_metadata?.full_name || null,
-          avatar_url: data.user.user_metadata?.avatar_url || null,
-          user_metadata: data.user.user_metadata,
-          created_at: data.user.created_at,
+          emailConfirmed: !!data.user.confirmed_at,
+          firstName: data.user.user_metadata?.first_name || null,
+          lastName: data.user.user_metadata?.last_name || null,
+          fullName: data.user.user_metadata?.full_name || null,
+          avatarUrl: data.user.user_metadata?.avatar_url || null,
+          createdAt: data.user.created_at,
         },
         session: {
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
-          expires_at: data.session.expires_at,
-          expires_in: data.session.expires_in,
+          accessToken: data.session.access_token,
+          refreshToken: data.session.refresh_token,
+          expiresAt: data.session.expires_at,
+          expiresIn: data.session.expires_in,
         },
       },
     });
@@ -229,10 +231,10 @@ router.post("/refresh", async (req, res) => {
       message: "Token refreshed successfully",
       data: {
         session: {
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
-          expires_at: data.session.expires_at,
-          expires_in: data.session.expires_in,
+          accessToken: data.session.access_token,
+          refreshToken: data.session.refresh_token,
+          expiresAt: data.session.expires_at,
+          expiresIn: data.session.expires_in,
         },
         user: {
           id: data.user.id,

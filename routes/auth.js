@@ -60,7 +60,7 @@ const avatarUpload = multer({
 // POST /api/auth/signup - Register a new user
 router.post("/signup", async (req, res) => {
   try {
-    const { email, password, metadata } = req.body;
+    const { email, password, firstName, lastName } = req.body;
 
     // Validate input
     if (!email || !password) {
@@ -78,12 +78,25 @@ router.post("/signup", async (req, res) => {
       });
     }
 
+    // Build user metadata
+    const userMetadata = {};
+    if (firstName) userMetadata.first_name = firstName.trim();
+    if (lastName) userMetadata.last_name = lastName.trim();
+
+    // Compute full name if both provided
+    if (firstName || lastName) {
+      const nameParts = [];
+      if (firstName) nameParts.push(firstName.trim());
+      if (lastName) nameParts.push(lastName.trim());
+      userMetadata.full_name = nameParts.join(" ");
+    }
+
     // Sign up the user with Supabase Auth
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: metadata || {}, // Optional user metadata
+        data: userMetadata,
       },
     });
 
@@ -163,6 +176,10 @@ router.post("/login", async (req, res) => {
           id: data.user.id,
           email: data.user.email,
           email_confirmed: !!data.user.confirmed_at,
+          first_name: data.user.user_metadata?.first_name || null,
+          last_name: data.user.user_metadata?.last_name || null,
+          full_name: data.user.user_metadata?.full_name || null,
+          avatar_url: data.user.user_metadata?.avatar_url || null,
           user_metadata: data.user.user_metadata,
           created_at: data.user.created_at,
         },
@@ -316,6 +333,10 @@ router.get("/user", async (req, res) => {
           email: user.email,
           email_confirmed: !!user.confirmed_at,
           phone: user.phone,
+          first_name: user.user_metadata?.first_name || null,
+          last_name: user.user_metadata?.last_name || null,
+          full_name: user.user_metadata?.full_name || null,
+          avatar_url: user.user_metadata?.avatar_url || null,
           user_metadata: user.user_metadata,
           app_metadata: user.app_metadata,
           created_at: user.created_at,
@@ -540,56 +561,69 @@ router.post("/update-password", async (req, res) => {
 });
 
 // POST /api/auth/update-profile - Update user profile metadata
-router.post("/update-profile", async (req, res) => {
+router.post("/update-profile", authenticateUser, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.split(" ")[1];
-    const { metadata } = req.body;
+    const { firstName, lastName } = req.body;
+    const userId = req.user.id;
 
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: "No authentication token provided",
-      });
-    }
-
-    if (!metadata || typeof metadata !== "object") {
+    // Validate input - at least one field must be provided
+    if (firstName === undefined && lastName === undefined) {
       return res.status(400).json({
         success: false,
-        error: "Metadata object is required",
+        error: "No updates provided",
+        message:
+          "Please provide at least one field to update: firstName or lastName",
       });
     }
 
-    // Get user from token
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser(token);
-
-    if (userError || !user) {
-      return res.status(401).json({
+    // Validate field types if provided
+    if (firstName !== undefined && typeof firstName !== "string") {
+      return res.status(400).json({
         success: false,
-        error: "Invalid or expired token",
+        error: "Invalid firstName format",
+        message: "firstName must be a string",
       });
     }
 
-    // Create a new client with the user's session
-    const userSupabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_ANON_KEY,
+    if (lastName !== undefined && typeof lastName !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid lastName format",
+        message: "lastName must be a string",
+      });
+    }
+
+    console.log(`👤 User ${req.user.email} updating profile`);
+
+    // Get current user metadata to preserve existing fields
+    const { data: currentUser } = await supabase.auth.getUser(req.token);
+    const currentMetadata = currentUser.user?.user_metadata || {};
+
+    // Build update object
+    const updatedMetadata = { ...currentMetadata };
+
+    if (firstName !== undefined) {
+      updatedMetadata.first_name = firstName.trim();
+    }
+
+    if (lastName !== undefined) {
+      updatedMetadata.last_name = lastName.trim();
+    }
+
+    // Update full_name
+    const nameParts = [];
+    if (updatedMetadata.first_name) nameParts.push(updatedMetadata.first_name);
+    if (updatedMetadata.last_name) nameParts.push(updatedMetadata.last_name);
+    updatedMetadata.full_name =
+      nameParts.length > 0 ? nameParts.join(" ") : null;
+
+    // Update user metadata using admin client
+    const { data, error } = await supabaseAdmin.auth.admin.updateUserById(
+      userId,
       {
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
+        user_metadata: updatedMetadata,
       }
     );
-
-    // Update user metadata
-    const { data, error } = await userSupabase.auth.updateUser({
-      data: metadata,
-    });
 
     if (error) {
       return res.status(400).json({
@@ -598,6 +632,8 @@ router.post("/update-profile", async (req, res) => {
       });
     }
 
+    console.log(`✅ Profile updated successfully for user ${req.user.email}`);
+
     res.json({
       success: true,
       message: "Profile updated successfully",
@@ -605,7 +641,10 @@ router.post("/update-profile", async (req, res) => {
         user: {
           id: data.user.id,
           email: data.user.email,
-          user_metadata: data.user.user_metadata,
+          first_name: data.user.user_metadata?.first_name || null,
+          last_name: data.user.user_metadata?.last_name || null,
+          full_name: data.user.user_metadata?.full_name || null,
+          avatar_url: data.user.user_metadata?.avatar_url || null,
           updated_at: data.user.updated_at,
         },
       },

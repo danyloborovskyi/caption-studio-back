@@ -1,12 +1,61 @@
 const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
+const multer = require("multer");
+const path = require("path");
+const { authenticateUser } = require("../middleware/auth");
 const router = express.Router();
 
-// Initialize Supabase client
+// Initialize Supabase clients
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY // Use anon key for auth operations
 );
+
+// Service role client for admin operations (like updating user metadata)
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY // Service role for admin operations
+);
+
+// Helper function to create user-specific Supabase client
+function getSupabaseClient(accessToken) {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  });
+}
+
+// Configure multer for avatar uploads
+const avatarStorage = multer.memoryStorage();
+const avatarUpload = multer({
+  storage: avatarStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit for avatars
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept only images
+    const allowedTypes = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+    ];
+
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(
+        new Error(
+          "Invalid file type. Only JPEG, PNG, WebP, and GIF images are allowed."
+        )
+      );
+    }
+  },
+});
 
 // POST /api/auth/signup - Register a new user
 router.post("/signup", async (req, res) => {
@@ -566,6 +615,194 @@ router.post("/update-profile", async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to update profile",
+      details: error.message,
+    });
+  }
+});
+
+// POST /api/auth/avatar - Upload or update user avatar
+router.post(
+  "/avatar",
+  authenticateUser,
+  avatarUpload.single("avatar"),
+  async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const userToken = req.token;
+      const userSupabase = getSupabaseClient(userToken);
+
+      console.log(`📸 User ${req.user.email} uploading avatar`);
+
+      // Check if file was uploaded
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: "No file uploaded",
+          message: "Please provide an image file",
+        });
+      }
+
+      const file = req.file;
+
+      // Generate unique filename
+      const fileExt = path.extname(file.originalname);
+      const fileName = `${userId}-${Date.now()}${fileExt}`;
+      const filePath = `avatars/${userId}/${fileName}`;
+
+      console.log(`📤 Uploading avatar: ${fileName}`);
+
+      // Delete old avatar if exists
+      try {
+        // Get user metadata using the main supabase client with token
+        const { data: userData, error: getUserError } =
+          await supabase.auth.getUser(userToken);
+
+        if (!getUserError && userData.user) {
+          const oldAvatarUrl = userData.user.user_metadata?.avatar_url;
+
+          if (oldAvatarUrl) {
+            // Extract file path from URL
+            const urlParts = oldAvatarUrl.split("/avatars/");
+            if (urlParts.length > 1) {
+              const oldFilePath = `avatars/${urlParts[1]}`;
+              await userSupabase.storage.from("avatars").remove([oldFilePath]);
+              console.log(`🗑️  Deleted old avatar: ${oldFilePath}`);
+            }
+          }
+        }
+      } catch (deleteError) {
+        console.log("Note: Could not delete old avatar (may not exist)");
+      }
+
+      // Upload to Supabase Storage
+      const { data: uploadData, error: uploadError } =
+        await userSupabase.storage
+          .from("avatars")
+          .upload(filePath, file.buffer, {
+            contentType: file.mimetype,
+            upsert: true,
+          });
+
+      if (uploadError) {
+        console.error("Avatar upload error:", uploadError);
+        throw uploadError;
+      }
+
+      // Get public URL
+      const {
+        data: { publicUrl },
+      } = userSupabase.storage.from("avatars").getPublicUrl(filePath);
+
+      console.log(`✅ Avatar uploaded: ${publicUrl}`);
+
+      // Update user metadata with avatar URL using admin client
+      const { data: updateData, error: updateError } =
+        await supabaseAdmin.auth.admin.updateUserById(userId, {
+          user_metadata: {
+            avatar_url: publicUrl,
+          },
+        });
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      console.log(`✅ User profile updated with avatar URL`);
+
+      res.json({
+        success: true,
+        message: "Avatar uploaded successfully",
+        data: {
+          avatar_url: publicUrl,
+          file_size: file.size,
+          file_size_mb: (file.size / (1024 * 1024)).toFixed(2),
+          mime_type: file.mimetype,
+        },
+      });
+    } catch (error) {
+      console.error("Avatar upload error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to upload avatar",
+        details: error.message,
+      });
+    }
+  }
+);
+
+// DELETE /api/auth/avatar - Delete user avatar
+router.delete("/avatar", authenticateUser, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userToken = req.token;
+    const userSupabase = getSupabaseClient(userToken);
+
+    console.log(`🗑️  User ${req.user.email} deleting avatar`);
+
+    // Get current avatar URL using the main supabase client
+    const { data: userData, error: getUserError } = await supabase.auth.getUser(
+      userToken
+    );
+
+    if (getUserError || !userData.user) {
+      return res.status(401).json({
+        success: false,
+        error: "Failed to get user data",
+        details: getUserError?.message,
+      });
+    }
+
+    const avatarUrl = userData.user.user_metadata?.avatar_url;
+
+    if (!avatarUrl) {
+      return res.status(404).json({
+        success: false,
+        error: "No avatar found",
+        message: "User does not have an avatar to delete",
+      });
+    }
+
+    // Extract file path from URL
+    const urlParts = avatarUrl.split("/avatars/");
+    if (urlParts.length > 1) {
+      const filePath = `avatars/${urlParts[1]}`;
+
+      // Delete from storage
+      const { error: deleteError } = await userSupabase.storage
+        .from("avatars")
+        .remove([filePath]);
+
+      if (deleteError) {
+        console.error("Storage delete error:", deleteError);
+        throw deleteError;
+      }
+
+      console.log(`✅ Avatar deleted from storage: ${filePath}`);
+    }
+
+    // Remove avatar URL from user metadata using admin client
+    const { error: updateError } =
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        user_metadata: {
+          avatar_url: null,
+        },
+      });
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    console.log(`✅ Avatar URL removed from user profile`);
+
+    res.json({
+      success: true,
+      message: "Avatar deleted successfully",
+    });
+  } catch (error) {
+    console.error("Avatar delete error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to delete avatar",
       details: error.message,
     });
   }

@@ -48,17 +48,19 @@ FRONTEND_URL=http://localhost:3000
 
 ### Base URL: `/api/auth`
 
-| Method | Endpoint           | Description                     | Auth Required |
-| ------ | ------------------ | ------------------------------- | ------------- |
-| `POST` | `/signup`          | Register a new user             | ❌            |
-| `POST` | `/login`           | Login with email/password       | ❌            |
-| `POST` | `/logout`          | Logout and revoke token         | ✅            |
-| `POST` | `/refresh`         | Refresh access token            | ❌            |
-| `GET`  | `/user`            | Get current user profile        | ✅            |
-| `POST` | `/forgot-password` | Send password reset email       | ❌            |
-| `POST` | `/reset-password`  | Reset password with token       | ❌            |
-| `POST` | `/update-password` | Update password (authenticated) | ✅            |
-| `POST` | `/update-profile`  | Update user metadata            | ✅            |
+| Method   | Endpoint           | Description                     | Auth Required |
+| -------- | ------------------ | ------------------------------- | ------------- |
+| `POST`   | `/signup`          | Register a new user             | ❌            |
+| `POST`   | `/login`           | Login with email/password       | ❌            |
+| `POST`   | `/logout`          | Logout and revoke token         | ✅            |
+| `POST`   | `/refresh`         | Refresh access token            | ❌            |
+| `GET`    | `/user`            | Get current user profile        | ✅            |
+| `POST`   | `/forgot-password` | Send password reset email       | ❌            |
+| `POST`   | `/reset-password`  | Reset password with token       | ❌            |
+| `POST`   | `/update-password` | Update password (authenticated) | ✅            |
+| `POST`   | `/update-profile`  | Update user metadata            | ✅            |
+| `POST`   | `/avatar`          | Upload/update user avatar       | ✅            |
+| `DELETE` | `/avatar`          | Delete user avatar              | ✅            |
 
 ---
 

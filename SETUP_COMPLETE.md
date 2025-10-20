@@ -87,6 +87,8 @@ POST   /api/auth/forgot-password     - Request password reset
 POST   /api/auth/reset-password      - Reset password with token
 PUT    /api/auth/update-password     - Update password (authenticated)
 PUT    /api/auth/update-profile      - Update user profile
+POST   /api/auth/avatar              - Upload/update user avatar ⭐
+DELETE /api/auth/avatar              - Delete user avatar ⭐
 ```
 
 ### Upload (All require authentication)

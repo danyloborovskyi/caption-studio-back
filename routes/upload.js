@@ -2,26 +2,64 @@ const express = require("express");
 const multer = require("multer");
 const { createClient } = require("@supabase/supabase-js");
 const OpenAI = require("openai");
+const { authenticateUser } = require("../middleware/auth");
+const {
+  createProgressTracker,
+  getProgressTracker,
+} = require("../utils/progressTracker");
+const crypto = require("crypto");
 const router = express.Router();
 
-// Initialize Supabase client with service key for admin operations
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY // Use service key for bypassing RLS
-);
+// Helper function to create user-specific Supabase client
+function getSupabaseClient(accessToken) {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  });
+}
 
 // Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Tag style prompts
+const TAG_STYLES = {
+  neutral: {
+    name: "Neutral",
+    instruction:
+      "Exactly 5 relevant, descriptive tags/keywords (single words or short phrases, professional and clear)",
+  },
+  playful: {
+    name: "Playful",
+    instruction:
+      "Exactly 5 fun, creative, engaging tags/keywords (can be playful phrases, trending terms, or expressive words)",
+  },
+  seo: {
+    name: "SEO",
+    instruction:
+      "Exactly 5 highly searchable SEO tags/keywords (focus on popular search terms, specific descriptors, and discoverability)",
+  },
+};
+
 // Function to analyze image with OpenAI Vision
-async function analyzeImageWithAI(imageUrl) {
+async function analyzeImageWithAI(imageUrl, tagStyle = "neutral") {
   try {
     // Validate image URL format
     if (!imageUrl || !imageUrl.includes("supabase")) {
       throw new Error("Invalid image URL");
     }
+
+    // Validate tag style
+    const validStyles = ["neutral", "playful", "seo"];
+    if (!validStyles.includes(tagStyle)) {
+      tagStyle = "neutral"; // Default to neutral if invalid style
+    }
+
+    const styleConfig = TAG_STYLES[tagStyle];
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -32,8 +70,8 @@ async function analyzeImageWithAI(imageUrl) {
             {
               type: "text",
               text: `Analyze this image and provide:
-1. A detailed, engaging description of what you see (1 sentence)
-2. Exactly 5 relevant tags/keywords (single words or short phrases)
+1. A detailed, engaging description of what you see (1-2 sentences)
+2. ${styleConfig.instruction}
 
 Format your response as JSON:
 {
@@ -63,6 +101,7 @@ Format your response as JSON:
         success: true,
         description: analysisResult.description,
         tags: analysisResult.tags || [],
+        tagStyle: tagStyle, // Include the tag style used
       };
     }
 
@@ -119,9 +158,115 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit for images
+    fileSize: 10 * 1024 * 1024, // 10MB limit for images
   },
   fileFilter: fileFilter,
+});
+
+// ==========================================
+// PROTECT ALL UPLOAD ROUTES WITH AUTHENTICATION
+// ==========================================
+router.use(authenticateUser);
+
+// 🔍 DIAGNOSTIC ENDPOINT - Test if token works with Supabase
+router.get("/test-auth", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userEmail = req.user.email;
+    const userToken = req.token;
+
+    console.log("🔍 Testing auth with Supabase...");
+    console.log("User ID:", userId);
+    console.log(
+      "Token preview:",
+      userToken ? userToken.substring(0, 50) + "..." : "MISSING"
+    );
+
+    // Create client with token
+    const supabase = getSupabaseClient(userToken);
+
+    // Try to query auth.users to see if token is recognized
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    console.log("Supabase auth.getUser() result:", {
+      user: user?.id,
+      error: authError?.message,
+    });
+
+    // Try a simple database SELECT query
+    const { data, error: dbError } = await supabase
+      .from("uploaded_files")
+      .select("count")
+      .limit(1);
+
+    // Try a test INSERT to see if RLS allows it
+    const { data: insertData, error: insertError } = await supabase
+      .from("uploaded_files")
+      .insert([
+        {
+          filename: "test-diagnostic.jpg",
+          file_path: "test/diagnostic.jpg",
+          file_size: 1000,
+          mime_type: "image/jpeg",
+          public_url: "https://test.com/diagnostic.jpg",
+          user_id: userId,
+          status: "test",
+        },
+      ])
+      .select();
+
+    console.log("Test INSERT result:", {
+      success: !insertError,
+      error: insertError?.message,
+      data: insertData,
+    });
+
+    // If insert succeeded, delete the test record
+    if (insertData && insertData.length > 0) {
+      await supabase.from("uploaded_files").delete().eq("id", insertData[0].id);
+      console.log("Test record cleaned up");
+    }
+
+    return res.json({
+      success: true,
+      auth_middleware: {
+        user_id: userId,
+        email: userEmail,
+        token_exists: !!userToken,
+      },
+      supabase_auth: {
+        user_id: user?.id,
+        email: user?.email,
+        error: authError?.message,
+      },
+      supabase_db_query: {
+        select_query: {
+          success: !dbError,
+          error: dbError?.message,
+        },
+        insert_query: {
+          success: !insertError,
+          error: insertError?.message,
+          details: insertError?.details || null,
+          hint: insertError?.hint || null,
+        },
+      },
+      diagnostic: {
+        token_in_middleware: !!userToken,
+        token_recognized_by_supabase: !!user,
+        tokens_match: user?.id === userId,
+        insert_works: !insertError,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
 });
 
 // POST route for image upload
@@ -134,13 +279,26 @@ router.post("/image", upload.single("image"), async (req, res) => {
       });
     }
 
+    // Get authenticated user ID and token
+    const userId = req.user.id;
+    const userEmail = req.user.email;
+    const userToken = req.token;
+
+    // Create user-specific Supabase client
+    const supabase = getSupabaseClient(userToken);
+
     const { originalname, buffer, mimetype, size } = req.file;
+
+    console.log(`📤 User ${userEmail} (${userId}) uploading image...`);
 
     // Generate unique filename
     const timestamp = Date.now();
+    const randomString = Math.random().toString(36).substring(2, 8);
     const fileExtension = originalname.split(".").pop();
-    const fileName = `image_${timestamp}.${fileExtension}`;
-    const filePath = `images/${fileName}`;
+    const fileName = `${timestamp}-${randomString}.${fileExtension}`;
+
+    // User-specific folder structure
+    const filePath = `images/${userId}/${fileName}`;
 
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
@@ -165,7 +323,7 @@ router.post("/image", upload.single("image"), async (req, res) => {
       .from("uploads")
       .getPublicUrl(filePath);
 
-    // Save file metadata to database using service key (bypasses RLS)
+    // Save file metadata to database with user_id
     const { data: dbData, error: dbError } = await supabase
       .from("uploaded_files")
       .insert([
@@ -175,6 +333,8 @@ router.post("/image", upload.single("image"), async (req, res) => {
           file_size: size,
           mime_type: mimetype,
           public_url: publicData.publicUrl,
+          user_id: userId, // Store user ID
+          status: "uploaded",
           uploaded_at: new Date().toISOString(),
         },
       ])
@@ -212,24 +372,31 @@ router.post("/image", upload.single("image"), async (req, res) => {
 router.post("/analyze/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const { tagStyle = "neutral" } = req.body; // Get tag style from request body
+    const userId = req.user.id;
+    const userToken = req.token;
 
-    // Get the image record from database
+    // Create user-specific Supabase client
+    const supabase = getSupabaseClient(userToken);
+
+    // Get the image record from database (filtered by user)
     const { data: imageRecord, error: fetchError } = await supabase
       .from("uploaded_files")
       .select("*")
       .eq("id", id)
+      .eq("user_id", userId) // Ensure user owns this file
       .single();
 
     if (fetchError || !imageRecord) {
       return res.status(404).json({
         success: false,
-        error: "Image not found",
+        error: "Image not found or access denied",
         details: fetchError?.message,
       });
     }
 
     // Analyze image with OpenAI Vision
-    const aiResult = await analyzeImageWithAI(imageRecord.public_url);
+    const aiResult = await analyzeImageWithAI(imageRecord.public_url, tagStyle);
 
     if (!aiResult.success) {
       return res.status(500).json({
@@ -299,13 +466,27 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
       });
     }
 
+    // Get authenticated user ID and token
+    const userId = req.user.id;
+    const userEmail = req.user.email;
+    const userToken = req.token;
+    const { tagStyle = "neutral" } = req.body; // Get tag style from request body
+
+    // Create user-specific Supabase client
+    const supabase = getSupabaseClient(userToken);
+
     const { originalname, buffer, mimetype, size } = req.file;
+
+    console.log(`📤 User ${userEmail} uploading and analyzing image...`);
 
     // Generate unique filename
     const timestamp = Date.now();
+    const randomString = Math.random().toString(36).substring(2, 8);
     const fileExtension = originalname.split(".").pop();
-    const fileName = `image_${timestamp}.${fileExtension}`;
-    const filePath = `images/${fileName}`;
+    const fileName = `${timestamp}-${randomString}.${fileExtension}`;
+
+    // User-specific folder structure
+    const filePath = `images/${userId}/${fileName}`;
 
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
@@ -330,7 +511,7 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
       .from("uploads")
       .getPublicUrl(filePath);
 
-    // Save basic file metadata to database with initial status
+    // Save basic file metadata to database with initial status and user_id
     const { data: dbData, error: dbError } = await supabase
       .from("uploaded_files")
       .insert([
@@ -340,6 +521,8 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
           file_size: size,
           mime_type: mimetype,
           public_url: publicData.publicUrl,
+          user_id: userId, // Store user ID
+          status: "processing",
           uploaded_at: new Date().toISOString(),
         },
       ])
@@ -364,7 +547,7 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
     }
 
     // Analyze image with OpenAI Vision
-    const aiResult = await analyzeImageWithAI(publicData.publicUrl);
+    const aiResult = await analyzeImageWithAI(publicData.publicUrl, tagStyle);
 
     // Update database with AI results and final status
     let updateData = {
@@ -433,40 +616,117 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
   }
 });
 
-// POST route for bulk upload + AI analysis (up to 3 images)
+// SSE endpoint for real-time upload progress
+router.get("/progress/:uploadId", authenticateUser, (req, res) => {
+  const { uploadId } = req.params;
+  const tracker = getProgressTracker(uploadId);
+
+  if (!tracker) {
+    return res.status(404).json({
+      success: false,
+      error: "Upload session not found",
+      message: "Invalid or expired upload ID",
+    });
+  }
+
+  // Set headers for SSE
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
+
+  // Add client to tracker
+  tracker.addClient(res);
+
+  // Handle client disconnect
+  req.on("close", () => {
+    tracker.removeClient(res);
+  });
+});
+
+// POST route for bulk upload + AI analysis (up to 10 images, processed in parallel)
 router.post(
   "/bulk-upload-and-analyze",
-  upload.array("images", 3),
+  upload.array("images", 10),
   async (req, res) => {
     try {
       if (!req.files || req.files.length === 0) {
         return res.status(400).json({
           success: false,
           error: "No image files provided",
+          message: "Please upload at least one image file",
         });
       }
 
-      if (req.files.length > 3) {
+      if (req.files.length > 10) {
         return res.status(400).json({
           success: false,
-          error: "Maximum 3 images allowed per request",
+          error: "Maximum 10 images allowed per request",
+          message: "You can upload up to 10 images at once",
         });
       }
 
+      // Generate unique upload ID
+      const uploadId = crypto.randomBytes(16).toString("hex");
+
+      // Get authenticated user ID and token
+      const userId = req.user.id;
+      const userEmail = req.user.email;
+      const userToken = req.token;
+      const { tagStyle = "neutral" } = req.body; // Get tag style from request body
+
+      // Create user-specific Supabase client
+      const supabase = getSupabaseClient(userToken);
+
+      console.log(
+        `📤 User ${userEmail} uploading ${req.files.length} images... (ID: ${uploadId})`
+      );
+
+      // Create progress tracker
+      const progressTracker = createProgressTracker(uploadId, req.files.length);
+
+      // Initialize file statuses
+      req.files.forEach((file) => {
+        progressTracker.updateFile(file.originalname, "pending");
+      });
+
+      // Return upload ID immediately so client can start listening to progress
+      res.json({
+        success: true,
+        message: "Upload started",
+        data: {
+          uploadId,
+          totalFiles: req.files.length,
+          progressUrl: `/api/upload/progress/${uploadId}`,
+        },
+      });
+
+      // Process files asynchronously
       const results = [];
       const errors = [];
 
-      // Process each image
-      for (let i = 0; i < req.files.length; i++) {
-        const file = req.files[i];
+      console.log(`⚡ Processing ${req.files.length} images in parallel...`);
+      const startTime = Date.now();
+
+      // Process all images in parallel
+      const processingPromises = req.files.map(async (file, i) => {
         const { originalname, buffer, mimetype, size } = file;
 
         try {
           // Generate unique filename
           const timestamp = Date.now();
+          const randomString = Math.random().toString(36).substring(2, 8);
           const fileExtension = originalname.split(".").pop();
-          const fileName = `image_${timestamp}_${i}.${fileExtension}`;
-          const filePath = `images/${fileName}`;
+          const fileName = `${timestamp}-${randomString}-${i}.${fileExtension}`;
+
+          // User-specific folder structure
+          const filePath = `images/${userId}/${fileName}`;
+
+          console.log(
+            `  📤 [${i + 1}/${req.files.length}] Uploading ${originalname}...`
+          );
+
+          progressTracker.updateFile(originalname, "uploading");
 
           // Upload to Supabase Storage
           const { data, error } = await supabase.storage
@@ -478,11 +738,7 @@ router.post(
             });
 
           if (error) {
-            errors.push({
-              filename: originalname,
-              error: `Storage upload failed: ${error.message}`,
-            });
-            continue;
+            throw new Error(`Storage upload failed: ${error.message}`);
           }
 
           // Get public URL for the uploaded file
@@ -490,7 +746,15 @@ router.post(
             .from("uploads")
             .getPublicUrl(filePath);
 
-          // Save basic file metadata to database
+          console.log(
+            `  💾 [${i + 1}/${
+              req.files.length
+            }] Saving ${originalname} to database...`
+          );
+
+          progressTracker.updateFile(originalname, "saving");
+
+          // Save basic file metadata to database with user_id
           const { data: dbData, error: dbError } = await supabase
             .from("uploaded_files")
             .insert([
@@ -500,6 +764,8 @@ router.post(
                 file_size: size,
                 mime_type: mimetype,
                 public_url: publicData.publicUrl,
+                user_id: userId, // Store user ID
+                status: "processing",
                 uploaded_at: new Date().toISOString(),
               },
             ])
@@ -507,15 +773,22 @@ router.post(
             .single();
 
           if (dbError) {
-            errors.push({
-              filename: originalname,
-              error: `Database save failed: ${dbError.message}`,
-            });
-            continue;
+            throw new Error(`Database save failed: ${dbError.message}`);
           }
 
+          console.log(
+            `  🤖 [${i + 1}/${
+              req.files.length
+            }] Analyzing ${originalname} with AI...`
+          );
+
+          progressTracker.updateFile(originalname, "analyzing");
+
           // Analyze image with OpenAI Vision
-          const aiResult = await analyzeImageWithAI(publicData.publicUrl);
+          const aiResult = await analyzeImageWithAI(
+            publicData.publicUrl,
+            tagStyle
+          );
 
           // Try to update database with AI results
           if (aiResult.success) {
@@ -529,71 +802,131 @@ router.post(
                   updated_at: new Date().toISOString(),
                 })
                 .eq("id", dbData.id);
+
+              console.log(
+                `  ✅ [${i + 1}/${req.files.length}] Completed ${originalname}`
+              );
+
+              const fileData = {
+                id: dbData.id,
+                filename: originalname,
+                size: size,
+                type: mimetype,
+                path: filePath,
+                publicUrl: publicData.publicUrl,
+                description: aiResult.description,
+                tags: aiResult.tags,
+                status: "completed",
+                uploadedAt: dbData.uploaded_at,
+                analyzedAt: new Date().toISOString(),
+              };
+
+              progressTracker.updateFile(originalname, "completed", fileData);
             } catch (updateError) {
               console.warn(
                 `Could not update AI results for ${originalname}:`,
                 updateError
               );
             }
+          } else {
+            console.log(
+              `  ⚠️  [${i + 1}/${
+                req.files.length
+              }] AI analysis failed for ${originalname}`
+            );
+
+            const fileData = {
+              id: dbData.id,
+              filename: originalname,
+              size: size,
+              type: mimetype,
+              path: filePath,
+              publicUrl: publicData.publicUrl,
+              description: null,
+              tags: [],
+              status: "failed",
+              uploadedAt: dbData.uploaded_at,
+              analyzedAt: new Date().toISOString(),
+              error: aiResult.error,
+            };
+
+            progressTracker.updateFile(originalname, "completed", fileData);
           }
 
-          // Add successful result
-          results.push({
-            id: dbData.id,
-            filename: originalname,
-            size: size,
-            type: mimetype,
-            path: filePath,
-            publicUrl: publicData.publicUrl,
-            description: aiResult.success ? aiResult.description : null,
-            tags: aiResult.success ? aiResult.tags : [],
-            status: aiResult.success ? "completed" : "failed",
-            uploadedAt: dbData.uploaded_at,
-            analyzedAt: new Date().toISOString(),
-            analysis: {
-              success: aiResult.success,
-              error: aiResult.success ? null : aiResult.error,
+          // Return successful result
+          return {
+            success: true,
+            data: {
+              id: dbData.id,
+              filename: originalname,
+              size: size,
+              type: mimetype,
+              path: filePath,
+              publicUrl: publicData.publicUrl,
+              description: aiResult.success ? aiResult.description : null,
+              tags: aiResult.success ? aiResult.tags : [],
+              status: aiResult.success ? "completed" : "failed",
+              uploadedAt: dbData.uploaded_at,
+              analyzedAt: new Date().toISOString(),
+              analysis: {
+                success: aiResult.success,
+                error: aiResult.success ? null : aiResult.error,
+              },
             },
-          });
+          };
         } catch (fileError) {
-          errors.push({
+          console.log(
+            `  ❌ [${i + 1}/${req.files.length}] Failed ${originalname}: ${
+              fileError.message
+            }`
+          );
+
+          progressTracker.updateFile(originalname, "failed", {
+            filename: originalname,
+            error: fileError.message,
+          });
+
+          return {
+            success: false,
             filename: originalname,
             error: `Processing failed: ${fileError.message}`,
+          };
+        }
+      });
+
+      // Wait for all images to be processed
+      const processedResults = await Promise.all(processingPromises);
+
+      // Separate successful uploads from errors
+      processedResults.forEach((result) => {
+        if (result.success) {
+          results.push(result.data);
+        } else {
+          errors.push({
+            filename: result.filename,
+            error: result.error,
           });
         }
-      }
+      });
 
-      // Return results
-      const response = {
-        success: results.length > 0,
-        message: `Processed ${results.length} of ${req.files.length} images`,
-        data: {
-          successful_uploads: results.length,
-          total_attempts: req.files.length,
-          results: results,
-          errors: errors,
-        },
-      };
+      const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(
+        `⚡ Completed ${results.length}/${req.files.length} images in ${processingTime}s`
+      );
 
-      // Return appropriate status code
-      if (results.length === 0) {
-        return res.status(500).json({
-          ...response,
-          success: false,
-          message: "All uploads failed",
-        });
-      } else if (errors.length > 0) {
-        return res.status(207).json(response); // 207 Multi-Status
-      } else {
-        return res.status(200).json(response);
-      }
+      // Send completion event to all connected clients
+      progressTracker.complete(results, errors);
     } catch (error) {
       console.error("Bulk upload and analysis error:", error);
-      res.status(500).json({
-        success: false,
-        error: "Failed to process bulk upload and analysis",
-        details: error.message,
-      });
+
+      // If error happens before response was sent
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: "Failed to process bulk upload and analysis",
+          details: error.message,
+        });
+      }
     }
   }
 );
@@ -601,7 +934,12 @@ router.post(
 // POST route for bulk analysis of existing images
 router.post("/bulk-analyze", async (req, res) => {
   try {
-    const { ids } = req.body;
+    const { ids, tagStyle = "neutral" } = req.body; // Get tag style from request body
+    const userId = req.user.id;
+    const userToken = req.token;
+
+    // Create user-specific Supabase client
+    const supabase = getSupabaseClient(userToken);
 
     if (!ids || !Array.isArray(ids)) {
       return res.status(400).json({
@@ -630,23 +968,27 @@ router.post("/bulk-analyze", async (req, res) => {
     // Process each image ID
     for (const id of ids) {
       try {
-        // Get the image record from database
+        // Get the image record from database (filtered by user)
         const { data: imageRecord, error: fetchError } = await supabase
           .from("uploaded_files")
           .select("*")
           .eq("id", id)
+          .eq("user_id", userId) // Ensure user owns this file
           .single();
 
         if (fetchError || !imageRecord) {
           errors.push({
             id: id,
-            error: "Image not found",
+            error: "Image not found or access denied",
           });
           continue;
         }
 
         // Analyze image with OpenAI Vision
-        const aiResult = await analyzeImageWithAI(imageRecord.public_url);
+        const aiResult = await analyzeImageWithAI(
+          imageRecord.public_url,
+          tagStyle
+        );
 
         if (!aiResult.success) {
           errors.push({

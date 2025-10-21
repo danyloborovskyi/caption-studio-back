@@ -617,31 +617,78 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
 });
 
 // SSE endpoint for real-time upload progress
-router.get("/progress/:uploadId", authenticateUser, (req, res) => {
-  const { uploadId } = req.params;
-  const tracker = getProgressTracker(uploadId);
+// SSE endpoint for progress tracking (uses query param for auth since EventSource can't send headers)
+router.get("/progress/:uploadId", async (req, res) => {
+  try {
+    const { uploadId } = req.params;
+    const { token } = req.query; // Get token from query parameter
 
-  if (!tracker) {
-    return res.status(404).json({
-      success: false,
-      error: "Upload session not found",
-      message: "Invalid or expired upload ID",
+    // Authenticate using token from query parameter
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: "Authentication required",
+        message: "Please provide a valid token in the query parameter",
+      });
+    }
+
+    // Verify token with Supabase
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid or expired token",
+        message: "Please login again",
+      });
+    }
+
+    // Get progress tracker
+    const tracker = getProgressTracker(uploadId);
+
+    if (!tracker) {
+      return res.status(404).json({
+        success: false,
+        error: "Upload session not found",
+        message: "Invalid or expired upload ID",
+      });
+    }
+
+    // Set headers for SSE with CORS
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
+    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+
+    console.log(
+      `📡 SSE connection established for user ${user.email}, upload ${uploadId}`
+    );
+
+    // Add client to tracker
+    tracker.addClient(res);
+
+    // Handle client disconnect
+    req.on("close", () => {
+      console.log(
+        `📡 SSE connection closed for user ${user.email}, upload ${uploadId}`
+      );
+      tracker.removeClient(res);
     });
+  } catch (error) {
+    console.error("SSE connection error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: "Failed to establish SSE connection",
+        details: error.message,
+      });
+    }
   }
-
-  // Set headers for SSE
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
-
-  // Add client to tracker
-  tracker.addClient(res);
-
-  // Handle client disconnect
-  req.on("close", () => {
-    tracker.removeClient(res);
-  });
 });
 
 // POST route for bulk upload + AI analysis (up to 10 images, processed in parallel)

@@ -51,14 +51,15 @@ class ProgressTracker {
   updateFile(filename, status, data = {}) {
     const fileIndex = this.files.findIndex((f) => f.filename === filename);
 
+    // Format file data in camelCase
+    const formattedData = this.formatFileData({ filename, status, ...data });
+
     if (fileIndex === -1) {
-      this.files.push({ filename, status, ...data });
+      this.files.push(formattedData);
     } else {
       this.files[fileIndex] = {
         ...this.files[fileIndex],
-        filename,
-        status,
-        ...data,
+        ...formattedData,
       };
     }
 
@@ -74,17 +75,48 @@ class ProgressTracker {
     });
   }
 
+  // Format file data to camelCase for frontend
+  formatFileData(data) {
+    const formatted = {
+      filename: data.filename,
+      status: data.status,
+    };
+
+    // Add optional fields in camelCase
+    if (data.id) formatted.id = data.id;
+    if (data.size) formatted.size = data.size;
+    if (data.type) formatted.mimeType = data.type;
+    if (data.path) formatted.filePath = data.path;
+    if (data.publicUrl) formatted.publicUrl = data.publicUrl;
+    if (data.description) formatted.description = data.description;
+    if (data.tags) formatted.tags = data.tags;
+    if (data.uploadedAt) formatted.uploadedAt = data.uploadedAt;
+    if (data.analyzedAt) formatted.analyzedAt = data.analyzedAt;
+    if (data.error) formatted.error = data.error;
+
+    return formatted;
+  }
+
   complete(results, errors) {
     const endTime = Date.now();
     const duration = ((endTime - this.startTime) / 1000).toFixed(2);
+
+    // Format results and errors to camelCase
+    const formattedResults = results.map((result) =>
+      this.formatResultData(result)
+    );
+    const formattedErrors = errors.map((error) => ({
+      filename: error.filename,
+      error: error.error,
+    }));
 
     this.broadcast({
       type: "complete",
       data: {
         ...this.getState(),
-        duration: parseFloat(duration),
-        results,
-        errors,
+        durationSeconds: parseFloat(duration),
+        results: formattedResults,
+        errors: formattedErrors,
       },
     });
 
@@ -102,6 +134,26 @@ class ProgressTracker {
       progressStore.delete(this.uploadId);
       console.log(`🗑️  Cleaned up upload ${this.uploadId}`);
     }, 5000);
+  }
+
+  // Format result data to camelCase for frontend
+  formatResultData(data) {
+    return {
+      id: data.id,
+      filename: data.filename,
+      size: data.size,
+      mimeType: data.type || data.mimeType,
+      filePath: data.path || data.filePath,
+      publicUrl: data.publicUrl,
+      description: data.description || null,
+      tags: data.tags || [],
+      status: data.status || "completed",
+      uploadedAt: data.uploadedAt,
+      analyzedAt: data.analyzedAt,
+      hasAiAnalysis: !!(data.description || data.tags?.length > 0),
+      isImage:
+        data.type?.startsWith("image/") || data.mimeType?.startsWith("image/"),
+    };
   }
 
   getState() {

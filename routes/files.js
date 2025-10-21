@@ -28,7 +28,7 @@ router.get("/", async (req, res) => {
 
     const {
       page = 1,
-      limit = 20,
+      per_page = 20,
       status,
       sortBy = "uploaded_at",
       sortOrder = "desc",
@@ -36,8 +36,8 @@ router.get("/", async (req, res) => {
 
     // Calculate pagination
     const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const offset = (pageNum - 1) * limitNum;
+    const perPageNum = parseInt(per_page);
+    const offset = (pageNum - 1) * perPageNum;
 
     // Build query - filtered by user_id
     let query = supabase
@@ -55,7 +55,7 @@ router.get("/", async (req, res) => {
     query = query.order(sortBy, { ascending });
 
     // Add pagination
-    query = query.range(offset, offset + limitNum - 1);
+    query = query.range(offset, offset + perPageNum - 1);
 
     const { data, error, count } = await query;
 
@@ -88,7 +88,7 @@ router.get("/", async (req, res) => {
     }));
 
     // Calculate pagination info
-    const totalPages = Math.ceil(count / limitNum);
+    const totalPages = Math.ceil(count / perPageNum);
     const hasNextPage = pageNum < totalPages;
     const hasPrevPage = pageNum > 1;
 
@@ -97,7 +97,7 @@ router.get("/", async (req, res) => {
       data: formattedData,
       pagination: {
         current_page: pageNum,
-        per_page: limitNum,
+        per_page: perPageNum,
         total_items: count,
         total_pages: totalPages,
         has_next_page: hasNextPage,
@@ -136,15 +136,15 @@ router.get("/images", async (req, res) => {
 
     const {
       page = 1,
-      limit = 20,
+      per_page = 20,
       sortBy = "uploaded_at",
       sortOrder = "desc",
     } = req.query;
 
     // Calculate pagination
     const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const offset = (pageNum - 1) * limitNum;
+    const perPageNum = parseInt(per_page);
+    const offset = (pageNum - 1) * perPageNum;
 
     // Build query for images only - filtered by user_id
     let query = supabase
@@ -158,7 +158,7 @@ router.get("/images", async (req, res) => {
     query = query.order(sortBy, { ascending });
 
     // Add pagination
-    query = query.range(offset, offset + limitNum - 1);
+    query = query.range(offset, offset + perPageNum - 1);
 
     const { data, error, count } = await query;
 
@@ -189,9 +189,9 @@ router.get("/images", async (req, res) => {
       data: formattedData,
       pagination: {
         current_page: pageNum,
-        per_page: limitNum,
+        per_page: perPageNum,
         total_items: count,
-        total_pages: Math.ceil(count / limitNum),
+        total_pages: Math.ceil(count / perPageNum),
       },
       summary: {
         total_images: count,
@@ -313,7 +313,7 @@ router.get("/search", async (req, res) => {
     const userToken = req.token;
     const supabase = getSupabaseClient(userToken);
 
-    const { q: searchQuery, type, page = 1, limit = 20 } = req.query;
+    const { q: searchQuery, type, page = 1, per_page = 20 } = req.query;
 
     if (!searchQuery) {
       return res.status(400).json({
@@ -324,8 +324,8 @@ router.get("/search", async (req, res) => {
 
     // Calculate pagination
     const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const offset = (pageNum - 1) * limitNum;
+    const perPageNum = parseInt(per_page);
+    const offset = (pageNum - 1) * perPageNum;
 
     // Build search query - get user's files and filter client-side for better tag support
     let query = supabase
@@ -376,7 +376,7 @@ router.get("/search", async (req, res) => {
 
     // Apply pagination to filtered results
     const totalFiltered = filteredData.length;
-    const paginatedData = filteredData.slice(offset, offset + limitNum);
+    const paginatedData = filteredData.slice(offset, offset + perPageNum);
 
     // Format response data
     const formattedData = paginatedData.map((file) => ({
@@ -403,9 +403,9 @@ router.get("/search", async (req, res) => {
       },
       pagination: {
         current_page: pageNum,
-        per_page: limitNum,
+        per_page: perPageNum,
         total_items: totalFiltered,
-        total_pages: Math.ceil(totalFiltered / limitNum),
+        total_pages: Math.ceil(totalFiltered / perPageNum),
       },
     });
   } catch (error) {

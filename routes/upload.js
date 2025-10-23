@@ -26,19 +26,37 @@ const TAG_STYLES = {
   neutral: {
     name: "Neutral",
     instruction:
-      "Exactly 5 relevant, descriptive tags/keywords (single words or short phrases, professional and clear)",
+      "Generate a concise list of 5 neutral tags that accurately describe the content, setting, and main objects in the image. Use short, clear, factual terms.Avoid emotional, opinionated, or marketing words. Example tags: mountain, sunset, lake, reflection, trees, nature, landscape.",
   },
   playful: {
     name: "Playful",
     instruction:
-      "Exactly 5 fun, creative, engaging tags/keywords (can be playful phrases, trending terms, or expressive words)",
+      "Generate 5 playful tags, expressive tags that describe this image with energy or humor. Feel free to include slang or short phrases if appropriate. Combine literal and imaginative tags. Example tags: sunset vibes, wanderlust, weekend chill, good times, nature mood.",
   },
   seo: {
     name: "SEO",
     instruction:
-      "Exactly 5 highly searchable SEO tags/keywords (focus on popular search terms, specific descriptors, and discoverability)",
+      "Generate 5 SEO-friendly tags for this image. Use specific, searchable keywords and long-tail phrases that people might use to find this image online. Include variations of relevant terms (synonyms, categories, etc.). Avoid hashtags or emojis. Example tags: cozy coffee shop interior, cafe with warm lighting, people drinking coffee, modern cafe design.",
   },
 };
+
+// const TAG_STYLES = {
+//   neutral: {
+//     name: "Neutral",
+//     instruction:
+//       "Exactly 5 relevant, descriptive tags/keywords (single words or short phrases, professional and clear)",
+//   },
+//   playful: {
+//     name: "Playful",
+//     instruction:
+//       "Exactly 5 fun, creative, engaging tags/keywords (can be playful phrases, trending terms, or expressive words)",
+//   },
+//   seo: {
+//     name: "SEO",
+//     instruction:
+//       "Exactly 5 highly searchable SEO tags/keywords (focus on popular search terms, specific descriptors, and discoverability)",
+//   },
+// };
 
 // Function to analyze image with OpenAI Vision
 async function analyzeImageWithAI(imageUrl, tagStyle = "neutral") {

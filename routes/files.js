@@ -313,7 +313,14 @@ router.get("/search", async (req, res) => {
     const userToken = req.token;
     const supabase = getSupabaseClient(userToken);
 
-    const { q: searchQuery, type, page = 1, per_page = 20 } = req.query;
+    const {
+      q: searchQuery,
+      type,
+      page = 1,
+      per_page = 20,
+      sortBy = "uploaded_at",
+      sortOrder = "desc",
+    } = req.query;
 
     if (!searchQuery) {
       return res.status(400).json({
@@ -327,7 +334,18 @@ router.get("/search", async (req, res) => {
     const perPageNum = parseInt(per_page);
     const offset = (pageNum - 1) * perPageNum;
 
-    // Build search query - get user's files and filter client-side for better tag support
+    // Validate sortBy field
+    const validSortFields = [
+      "uploaded_at",
+      "updated_at",
+      "filename",
+      "file_size",
+    ];
+    const finalSortBy = validSortFields.includes(sortBy)
+      ? sortBy
+      : "uploaded_at";
+
+    // Build search query - get user's files
     let query = supabase
       .from("uploaded_files")
       .select("*")
@@ -337,9 +355,6 @@ router.get("/search", async (req, res) => {
     if (type) {
       query = query.like("mime_type", `${type}%`);
     }
-
-    // Add pagination and sorting (remove pagination for now, we'll do it after filtering)
-    query = query.order("uploaded_at", { ascending: false });
 
     const { data, error } = await query;
 
@@ -374,7 +389,30 @@ router.get("/search", async (req, res) => {
       });
     }
 
-    // Apply pagination to filtered results
+    // Apply sorting to filtered results
+    const ascending = sortOrder.toLowerCase() === "asc";
+    filteredData.sort((a, b) => {
+      let aVal = a[finalSortBy];
+      let bVal = b[finalSortBy];
+
+      // Handle null/undefined values
+      if (aVal === null || aVal === undefined) aVal = "";
+      if (bVal === null || bVal === undefined) bVal = "";
+
+      // For strings, use localeCompare
+      if (typeof aVal === "string" && typeof bVal === "string") {
+        return ascending ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+
+      // For numbers and dates, use standard comparison
+      if (ascending) {
+        return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+      } else {
+        return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+      }
+    });
+
+    // Apply pagination to filtered and sorted results
     const totalFiltered = filteredData.length;
     const paginatedData = filteredData.slice(offset, offset + perPageNum);
 
@@ -386,10 +424,12 @@ router.get("/search", async (req, res) => {
       description: file.description || null,
       tags: file.tags || [],
       mime_type: file.mime_type,
+      file_size: file.file_size,
       file_size_mb: file.file_size
         ? (file.file_size / (1024 * 1024)).toFixed(2)
         : null,
       uploaded_at: file.uploaded_at,
+      updated_at: file.updated_at || file.uploaded_at,
       is_image: file.mime_type?.startsWith("image/") || false,
     }));
 
@@ -400,6 +440,10 @@ router.get("/search", async (req, res) => {
         query: searchQuery,
         type_filter: type || "all",
         results_found: totalFiltered,
+      },
+      sorting: {
+        sort_by: finalSortBy,
+        sort_order: sortOrder,
       },
       pagination: {
         current_page: pageNum,

@@ -175,7 +175,7 @@ The server will start on `http://localhost:3000`
 | GET    | `/api/files/:id`            | Get single file by ID                     |
 | GET    | `/api/files/images`         | List images only                          |
 | GET    | `/api/files/stats`          | File statistics                           |
-| GET    | `/api/files/search`         | Search files                              |
+| GET    | `/api/files/search`         | Search files (with sorting support)       |
 | PATCH  | `/api/files/:id`            | Update file (filename, description, tags) |
 | DELETE | `/api/files/:id`            | Delete single file                        |
 | POST   | `/api/files/:id/regenerate` | Regenerate AI analysis for single file    |
@@ -329,6 +329,42 @@ curl -X POST http://localhost:3000/api/files/regenerate \
   -H "Content-Type: application/json" \
   -d '{"ids": [123, 124, 125], "tagStyle": "seo"}'
 ```
+
+### Search Files with Sorting
+
+```bash
+# Search with default sorting (uploaded_at, desc)
+curl "http://localhost:3000/api/files/search?q=sunset" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# Search and sort by updated_at (newest first)
+curl "http://localhost:3000/api/files/search?q=nature&sortBy=updated_at&sortOrder=desc" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# Search and sort by filename (A-Z)
+curl "http://localhost:3000/api/files/search?q=photo&sortBy=filename&sortOrder=asc" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# Search and sort by file size (largest first)
+curl "http://localhost:3000/api/files/search?q=image&sortBy=file_size&sortOrder=desc" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# Search images only, sorted by updated_at (oldest first)
+curl "http://localhost:3000/api/files/search?q=landscape&type=image&sortBy=updated_at&sortOrder=asc" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+**Available Sort Fields:**
+
+- `uploaded_at` - Sort by upload date (default)
+- `updated_at` - Sort by last update date
+- `filename` - Sort alphabetically by filename
+- `file_size` - Sort by file size
+
+**Sort Orders:**
+
+- `desc` - Descending (newest/largest/Z-A) - default
+- `asc` - Ascending (oldest/smallest/A-Z)
 
 ## 📊 Response Formats
 

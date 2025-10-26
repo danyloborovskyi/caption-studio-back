@@ -58,6 +58,21 @@ router.post("/signup", async (req, res) => {
       });
     }
 
+    // Check if this is an existing user (Supabase returns existing user to prevent enumeration)
+    // If no session is returned but user exists, it means the email is already registered
+    if (
+      data.user &&
+      !data.session &&
+      data.user.identities &&
+      data.user.identities.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "An account with this email already exists. Please login instead.",
+      });
+    }
+
     // Check if email confirmation is required
     const emailConfirmationRequired = !data.user?.confirmed_at;
 

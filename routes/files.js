@@ -1007,11 +1007,11 @@ Format your response as JSON:
   }
 });
 
-// PATCH route to update file metadata (tags and description)
+// PATCH route to update file metadata (filename, tags, and description)
 router.patch("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { description, tags } = req.body;
+    const { filename, description, tags } = req.body;
     const userId = req.user.id;
     const userToken = req.token;
     const supabase = getSupabaseClient(userToken);
@@ -1021,13 +1021,36 @@ router.patch("/:id", async (req, res) => {
     );
 
     // Validate input
-    if (description === undefined && tags === undefined) {
+    if (
+      filename === undefined &&
+      description === undefined &&
+      tags === undefined
+    ) {
       return res.status(400).json({
         success: false,
         error: "No updates provided",
         message:
-          "Please provide at least one field to update: description or tags",
+          "Please provide at least one field to update: filename, description, or tags",
       });
+    }
+
+    // Validate filename if provided
+    if (filename !== undefined) {
+      if (typeof filename !== "string" || filename.trim() === "") {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid filename format",
+          message: "Filename must be a non-empty string",
+        });
+      }
+
+      if (filename.length > 255) {
+        return res.status(400).json({
+          success: false,
+          error: "Filename too long",
+          message: "Filename must not exceed 255 characters",
+        });
+      }
     }
 
     // Validate tags if provided
@@ -1087,6 +1110,10 @@ router.patch("/:id", async (req, res) => {
     const updateData = {
       updated_at: new Date().toISOString(),
     };
+
+    if (filename !== undefined) {
+      updateData.filename = filename.trim();
+    }
 
     if (description !== undefined) {
       updateData.description = description;

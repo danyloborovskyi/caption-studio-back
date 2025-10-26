@@ -169,24 +169,24 @@ The server will start on `http://localhost:3000`
 
 ### File Management
 
-| Method | Endpoint                    | Description                            |
-| ------ | --------------------------- | -------------------------------------- |
-| GET    | `/api/files/`               | List all user files (paginated)        |
-| GET    | `/api/files/:id`            | Get single file by ID                  |
-| GET    | `/api/files/images`         | List images only                       |
-| GET    | `/api/files/stats`          | File statistics                        |
-| GET    | `/api/files/search`         | Search files                           |
-| PATCH  | `/api/files/:id`            | Update file metadata                   |
-| DELETE | `/api/files/:id`            | Delete single file                     |
-| POST   | `/api/files/:id/regenerate` | Regenerate AI analysis for single file |
+| Method | Endpoint                    | Description                               |
+| ------ | --------------------------- | ----------------------------------------- |
+| GET    | `/api/files/`               | List all user files (paginated)           |
+| GET    | `/api/files/:id`            | Get single file by ID                     |
+| GET    | `/api/files/images`         | List images only                          |
+| GET    | `/api/files/stats`          | File statistics                           |
+| GET    | `/api/files/search`         | Search files                              |
+| PATCH  | `/api/files/:id`            | Update file (filename, description, tags) |
+| DELETE | `/api/files/:id`            | Delete single file                        |
+| POST   | `/api/files/:id/regenerate` | Regenerate AI analysis for single file    |
 
 ### Bulk Operations
 
-| Method | Endpoint                | Description                         |
-| ------ | ----------------------- | ----------------------------------- |
-| PATCH  | `/api/files`            | Bulk update (up to 50 files)        |
-| DELETE | `/api/files`            | Bulk delete (up to 100 files)       |
-| POST   | `/api/files/regenerate` | Bulk regenerate AI (up to 20 files) |
+| Method | Endpoint                | Description                                     |
+| ------ | ----------------------- | ----------------------------------------------- |
+| PATCH  | `/api/files`            | Bulk update files (filename, description, tags) |
+| DELETE | `/api/files`            | Bulk delete (up to 100 files)                   |
+| POST   | `/api/files/regenerate` | Bulk regenerate AI (up to 20 files)             |
 
 ### System Health
 
@@ -276,6 +276,26 @@ curl -X POST http://localhost:3000/api/upload/bulk-upload-and-analyze \
 # Step 2: Connect to SSE stream for progress
 curl -N http://localhost:3000/api/upload/progress/UPLOAD_ID \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+### Update Single File Metadata
+
+```bash
+# Update filename, description, and tags
+curl -X PATCH http://localhost:3000/api/files/123 \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "sunset-mountains.jpg",
+    "description": "A beautiful sunset over the mountains",
+    "tags": ["sunset", "mountains", "nature", "landscape", "scenic"]
+  }'
+
+# Update only filename
+curl -X PATCH http://localhost:3000/api/files/123 \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"filename": "new-name.jpg"}'
 ```
 
 ### Bulk Update Files

@@ -507,6 +507,21 @@ router.post("/download", async (req, res) => {
       zlib: { level: 9 }, // Maximum compression
     });
 
+    // Handle archive errors
+    archive.on("error", (err) => {
+      console.error("Archive error:", err);
+      throw err;
+    });
+
+    // Handle archive warnings
+    archive.on("warning", (err) => {
+      if (err.code === "ENOENT") {
+        console.warn("Archive warning:", err);
+      } else {
+        throw err;
+      }
+    });
+
     // Set response headers for ZIP download
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const zipFilename = `files-${timestamp}.zip`;
@@ -523,6 +538,7 @@ router.post("/download", async (req, res) => {
     let successCount = 0;
     let failureCount = 0;
     const errors = [];
+    const existingFiles = new Set(); // Track filenames to handle duplicates
 
     // Download and add each file to the archive
     for (let i = 0; i < ids.length; i++) {
@@ -563,27 +579,38 @@ router.post("/download", async (req, res) => {
           continue;
         }
 
-        // Convert blob to buffer
-        const buffer = Buffer.from(await fileData.arrayBuffer());
+        // Convert blob to buffer properly
+        const arrayBuffer = await fileData.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
 
-        // Add file to ZIP archive
         // Handle duplicate filenames by adding index
-        let filename = file.filename;
-        const existingFiles = new Set();
+        let filename = file.filename || `file_${id}`;
+
         if (existingFiles.has(filename)) {
-          const ext = filename.split(".").pop();
-          const name = filename.substring(0, filename.lastIndexOf("."));
-          let counter = 1;
-          while (existingFiles.has(`${name}_${counter}.${ext}`)) {
-            counter++;
+          const dotIndex = filename.lastIndexOf(".");
+          if (dotIndex > 0) {
+            const name = filename.substring(0, dotIndex);
+            const ext = filename.substring(dotIndex);
+            let counter = 1;
+            while (existingFiles.has(`${name}_${counter}${ext}`)) {
+              counter++;
+            }
+            filename = `${name}_${counter}${ext}`;
+          } else {
+            // No extension, just append counter
+            let counter = 1;
+            while (existingFiles.has(`${filename}_${counter}`)) {
+              counter++;
+            }
+            filename = `${filename}_${counter}`;
           }
-          filename = `${name}_${counter}.${ext}`;
         }
         existingFiles.add(filename);
 
+        // Add file to ZIP archive with proper buffer
         archive.append(buffer, { name: filename });
         successCount++;
-        console.log(`  ✅ [${i + 1}/${ids.length}] Added: ${file.filename}`);
+        console.log(`  ✅ [${i + 1}/${ids.length}] Added: ${filename}`);
       } catch (error) {
         console.error(`Error processing file ${id}:`, error);
         failureCount++;

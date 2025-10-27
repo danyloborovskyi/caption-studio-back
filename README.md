@@ -173,6 +173,7 @@ The server will start on `http://localhost:3000`
 | ------ | --------------------------- | ----------------------------------------- |
 | GET    | `/api/files/`               | List all user files (paginated)           |
 | GET    | `/api/files/:id`            | Get single file by ID                     |
+| GET    | `/api/files/:id/download`   | Download file                             |
 | GET    | `/api/files/images`         | List images only                          |
 | GET    | `/api/files/stats`          | File statistics                           |
 | GET    | `/api/files/search`         | Search files (with sorting support)       |
@@ -328,6 +329,52 @@ curl -X POST http://localhost:3000/api/files/regenerate \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"ids": [123, 124, 125], "tagStyle": "seo"}'
+```
+
+### Download File
+
+```bash
+# Download a file
+curl -X GET http://localhost:3000/api/files/123/download \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -o downloaded-file.jpg
+
+# Download with original filename (Linux/Mac)
+curl -X GET http://localhost:3000/api/files/123/download \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -OJ
+
+# Using wget
+wget --header="Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  http://localhost:3000/api/files/123/download
+```
+
+**JavaScript/Fetch Example:**
+
+```javascript
+const downloadFile = async (fileId, filename) => {
+  const response = await fetch(
+    `http://localhost:3000/api/files/${fileId}/download`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+// Usage
+downloadFile(123, "my-image.jpg");
 ```
 
 ### Search Files with Sorting

@@ -462,6 +462,72 @@ router.get("/search", async (req, res) => {
   }
 });
 
+// GET route to download a file
+router.get("/:id/download", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
+    console.log(
+      `📥 User ${req.user.email} attempting to download file ID: ${id}`
+    );
+
+    // Get file info and verify ownership
+    const { data: file, error: fetchError } = await supabase
+      .from("uploaded_files")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", userId) // ⭐ Verify ownership
+      .single();
+
+    if (fetchError || !file) {
+      return res.status(404).json({
+        success: false,
+        error: "File not found or access denied",
+      });
+    }
+
+    // Download file from Supabase Storage
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from("uploads")
+      .download(file.file_path);
+
+    if (downloadError) {
+      console.error("Download error:", downloadError);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to download file",
+        details: downloadError.message,
+      });
+    }
+
+    // Convert blob to buffer
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+
+    // Set headers for download
+    res.setHeader("Content-Type", file.mime_type || "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(file.filename)}"`
+    );
+    res.setHeader("Content-Length", buffer.length);
+
+    console.log(`✅ File downloaded successfully: ${file.filename}`);
+
+    // Send the file
+    res.send(buffer);
+  } catch (error) {
+    console.error("Download file error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to download file",
+      details: error.message,
+    });
+  }
+});
+
 // GET route to retrieve a single file by ID (must be LAST)
 router.get("/:id", async (req, res) => {
   try {

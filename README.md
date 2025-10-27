@@ -186,6 +186,7 @@ The server will start on `http://localhost:3000`
 | Method | Endpoint                | Description                                     |
 | ------ | ----------------------- | ----------------------------------------------- |
 | PATCH  | `/api/files`            | Bulk update files (filename, description, tags) |
+| POST   | `/api/files/download`   | Bulk download files as ZIP (up to 100 files)    |
 | DELETE | `/api/files`            | Bulk delete (up to 100 files)                   |
 | POST   | `/api/files/regenerate` | Bulk regenerate AI (up to 20 files)             |
 
@@ -376,6 +377,116 @@ const downloadFile = async (fileId, filename) => {
 // Usage
 downloadFile(123, "my-image.jpg");
 ```
+
+### Bulk Download Files as ZIP
+
+```bash
+# Download multiple files as a ZIP archive
+curl -X POST http://localhost:3000/api/files/download \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ids": [123, 124, 125, 126, 127]}' \
+  -o my-files.zip
+```
+
+**JavaScript/Fetch Example:**
+
+```javascript
+const bulkDownloadFiles = async (fileIds) => {
+  try {
+    const response = await fetch("http://localhost:3000/api/files/download", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ids: fileIds }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Bulk download failed");
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `files-${Date.now()}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error("Bulk download error:", error);
+    alert("Failed to download files");
+  }
+};
+
+// Usage
+bulkDownloadFiles([123, 124, 125, 126, 127]);
+```
+
+**React Component Example:**
+
+```javascript
+function BulkDownloadButton({ selectedFileIds }) {
+  const [downloading, setDownloading] = useState(false);
+
+  const handleBulkDownload = async () => {
+    if (selectedFileIds.length === 0) {
+      alert("Please select files to download");
+      return;
+    }
+
+    setDownloading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/files/download`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ids: selectedFileIds }),
+      });
+
+      if (!response.ok) throw new Error("Download failed");
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const timestamp = new Date().toISOString().split("T")[0];
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `files-${timestamp}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Bulk download error:", error);
+      alert("Failed to download files");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <button onClick={handleBulkDownload} disabled={downloading}>
+      {downloading
+        ? `Downloading ${selectedFileIds.length} files...`
+        : `Download ${selectedFileIds.length} files`}
+    </button>
+  );
+}
+```
+
+**Features:**
+
+- ✅ Downloads multiple files as a single ZIP archive
+- ✅ Maximum 100 files per download
+- ✅ Automatic filename collision handling
+- ✅ Includes error summary if some files fail
+- ✅ Timestamped ZIP filename
+- ✅ Maximum compression (level 9)
 
 ### Search Files with Sorting
 

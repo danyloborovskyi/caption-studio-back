@@ -462,6 +462,172 @@ router.get("/search", async (req, res) => {
   }
 });
 
+// POST route to bulk download files as ZIP
+router.post("/download", async (req, res) => {
+  try {
+    const { ids } = req.body;
+    const userId = req.user.id;
+    const userToken = req.token;
+    const supabase = getSupabaseClient(userToken);
+
+    console.log(
+      `📥 User ${req.user.email} attempting to bulk download ${ids?.length} files`
+    );
+
+    // Validate input
+    if (!ids || !Array.isArray(ids)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid request format",
+        message: "Request body must contain an 'ids' array",
+      });
+    }
+
+    if (ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No files provided",
+        message: "Please provide at least one file ID to download",
+      });
+    }
+
+    if (ids.length > 100) {
+      return res.status(400).json({
+        success: false,
+        error: "Too many files",
+        message: "Maximum 100 files can be downloaded at once",
+      });
+    }
+
+    // Import archiver for creating ZIP files
+    const archiver = require("archiver");
+
+    // Create a ZIP archive
+    const archive = archiver("zip", {
+      zlib: { level: 9 }, // Maximum compression
+    });
+
+    // Set response headers for ZIP download
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const zipFilename = `files-${timestamp}.zip`;
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${zipFilename}"`
+    );
+
+    // Pipe archive to response
+    archive.pipe(res);
+
+    // Track success/failures
+    let successCount = 0;
+    let failureCount = 0;
+    const errors = [];
+
+    // Download and add each file to the archive
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+
+      try {
+        // Get file info and verify ownership
+        const { data: file, error: fetchError } = await supabase
+          .from("uploaded_files")
+          .select("*")
+          .eq("id", id)
+          .eq("user_id", userId) // ⭐ Verify ownership
+          .single();
+
+        if (fetchError || !file) {
+          console.warn(`  ⚠️  File ${id} not found or access denied`);
+          failureCount++;
+          errors.push({
+            id,
+            error: "File not found or access denied",
+          });
+          continue;
+        }
+
+        // Download file from Supabase Storage
+        const { data: fileData, error: downloadError } = await supabase.storage
+          .from("uploads")
+          .download(file.file_path);
+
+        if (downloadError) {
+          console.warn(`  ⚠️  Failed to download file ${file.filename}`);
+          failureCount++;
+          errors.push({
+            id,
+            filename: file.filename,
+            error: downloadError.message,
+          });
+          continue;
+        }
+
+        // Convert blob to buffer
+        const buffer = Buffer.from(await fileData.arrayBuffer());
+
+        // Add file to ZIP archive
+        // Handle duplicate filenames by adding index
+        let filename = file.filename;
+        const existingFiles = new Set();
+        if (existingFiles.has(filename)) {
+          const ext = filename.split(".").pop();
+          const name = filename.substring(0, filename.lastIndexOf("."));
+          let counter = 1;
+          while (existingFiles.has(`${name}_${counter}.${ext}`)) {
+            counter++;
+          }
+          filename = `${name}_${counter}.${ext}`;
+        }
+        existingFiles.add(filename);
+
+        archive.append(buffer, { name: filename });
+        successCount++;
+        console.log(`  ✅ [${i + 1}/${ids.length}] Added: ${file.filename}`);
+      } catch (error) {
+        console.error(`Error processing file ${id}:`, error);
+        failureCount++;
+        errors.push({
+          id,
+          error: error.message || "Unknown error",
+        });
+      }
+    }
+
+    // Add a summary file if there were any errors
+    if (errors.length > 0) {
+      const summaryContent = `Download Summary
+==================
+
+Total Requested: ${ids.length}
+Successfully Downloaded: ${successCount}
+Failed: ${failureCount}
+
+Errors:
+${errors.map((e) => `- File ID ${e.id}: ${e.error}`).join("\n")}
+`;
+      archive.append(summaryContent, { name: "_download_summary.txt" });
+    }
+
+    // Finalize the archive
+    await archive.finalize();
+
+    console.log(
+      `✅ Bulk download completed: ${successCount}/${ids.length} files successful`
+    );
+  } catch (error) {
+    console.error("Bulk download error:", error);
+    // If headers haven't been sent yet, send error response
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: "Failed to process bulk download",
+        details: error.message,
+      });
+    }
+  }
+});
+
 // GET route to download a file
 router.get("/:id/download", async (req, res) => {
   try {

@@ -37,8 +37,18 @@ INSERT INTO uploaded_files_new (
     user_id, status, description, tags, uploaded_at, updated_at
 )
 SELECT 
-    filename, file_path, file_size, mime_type, public_url,
-    user_id, status, description, tags, uploaded_at, updated_at
+    filename, 
+    file_path, 
+    file_size, 
+    mime_type, 
+    public_url,
+    user_id, 
+    status, 
+    description, 
+    -- Cast tags to JSONB (handles both JSONB and text[] types)
+    COALESCE(to_jsonb(tags), '[]'::jsonb) as tags,
+    uploaded_at, 
+    updated_at
 FROM uploaded_files
 WHERE user_id IS NOT NULL; -- Only migrate files with user_id
 

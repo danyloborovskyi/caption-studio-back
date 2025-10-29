@@ -23,6 +23,9 @@ router.get("/stats", FilesController.getStats);
 // GET /api/files/search - Search files
 router.get("/search", FilesController.searchFiles);
 
+// POST /api/files/download - Bulk download files as ZIP
+router.post("/download", FilesController.bulkDownload);
+
 // GET /api/files/:id/download - Download single file
 router.get("/:id/download", FilesController.downloadFile);
 

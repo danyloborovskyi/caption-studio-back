@@ -6,6 +6,7 @@
 
 const ServiceContainer = require("../services/ServiceContainer");
 const { asyncHandler, ValidationError } = require("../utils/errorHandler");
+const archiver = require("archiver");
 
 class FilesController {
   /**
@@ -355,6 +356,120 @@ class FilesController {
     res.setHeader("Content-Length", buffer.length);
 
     res.send(buffer);
+  });
+
+  /**
+   * POST /api/files/download - Bulk download files as ZIP
+   */
+  static bulkDownload = asyncHandler(async (req, res) => {
+    const { ids } = req.body;
+    const userId = req.user.id;
+    const userToken = req.token;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      throw new ValidationError("File IDs array is required");
+    }
+
+    if (ids.length > 100) {
+      throw new ValidationError("Maximum 100 files allowed per download");
+    }
+
+    const container = new ServiceContainer(userToken);
+    const supabase = container.getSupabaseClient();
+    const fileRepository = container.getFileRepository();
+
+    // Get all files and verify ownership
+    const files = await Promise.all(
+      ids.map((id) => fileRepository.findById(id, userId))
+    );
+
+    const validFiles = files.filter((f) => f !== null);
+
+    if (validFiles.length === 0) {
+      throw new ValidationError("No valid files found to download");
+    }
+
+    // Set response headers
+    const timestamp = new Date().toISOString().split("T")[0];
+    const zipFilename = `files-${timestamp}.zip`;
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${zipFilename}"`
+    );
+
+    // Create ZIP archive
+    const archive = archiver("zip", {
+      zlib: { level: 9 }, // Maximum compression
+    });
+
+    // Pipe archive to response
+    archive.pipe(res);
+
+    // Track errors
+    const errors = [];
+    let successCount = 0;
+
+    // Add files to archive
+    for (const file of validFiles) {
+      try {
+        // Download from storage
+        const { data: fileData, error } = await supabase.storage
+          .from("uploads")
+          .download(file.filePath);
+
+        if (error) {
+          errors.push({
+            id: file.id,
+            filename: file.filename,
+            error: error.message,
+          });
+          continue;
+        }
+
+        // Convert blob to buffer
+        const buffer = Buffer.from(await fileData.arrayBuffer());
+
+        // Add to archive with collision handling
+        let archiveFilename = file.filename;
+        let counter = 1;
+        while (archive._entriesCount && archiveFilename in archive._entries) {
+          const extIndex = file.filename.lastIndexOf(".");
+          if (extIndex > 0) {
+            const name = file.filename.substring(0, extIndex);
+            const ext = file.filename.substring(extIndex);
+            archiveFilename = `${name}-${counter}${ext}`;
+          } else {
+            archiveFilename = `${file.filename}-${counter}`;
+          }
+          counter++;
+        }
+
+        archive.append(buffer, { name: archiveFilename });
+        successCount++;
+      } catch (error) {
+        errors.push({
+          id: file.id,
+          filename: file.filename,
+          error: error.message,
+        });
+      }
+    }
+
+    // Add error summary if there were any errors
+    if (errors.length > 0) {
+      const errorSummary = `Download Summary:\n\nSuccessful: ${successCount} files\nFailed: ${
+        errors.length
+      } files\n\nErrors:\n${errors
+        .map((e) => `- ${e.filename}: ${e.error}`)
+        .join("\n")}`;
+      archive.append(Buffer.from(errorSummary), {
+        name: "download-errors.txt",
+      });
+    }
+
+    // Finalize archive
+    await archive.finalize();
   });
 
   /**

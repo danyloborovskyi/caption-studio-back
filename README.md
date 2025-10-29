@@ -197,12 +197,10 @@ The server will start on `http://localhost:3000`
 
 | Method | Endpoint                              | Description                          |
 | ------ | ------------------------------------- | ------------------------------------ |
-| POST   | `/api/upload/image`                   | Upload single image                  |
+| POST   | `/api/upload/image`                   | Upload single image (no AI)          |
 | POST   | `/api/upload/upload-and-analyze`      | Upload + AI analysis (single)        |
 | POST   | `/api/upload/bulk-upload-and-analyze` | Bulk upload + AI analysis (up to 10) |
-| POST   | `/api/upload/analyze/:id`             | Analyze existing image               |
-| POST   | `/api/upload/bulk-analyze`            | Bulk analyze existing images         |
-| GET    | `/api/upload/progress/:uploadId`      | SSE stream for upload progress       |
+| POST   | `/api/upload/analyze/:id`             | Analyze existing image by ID         |
 
 ### File Management
 
@@ -229,12 +227,10 @@ The server will start on `http://localhost:3000`
 
 ### System Health
 
-| Method | Endpoint                    | Description              |
-| ------ | --------------------------- | ------------------------ |
-| GET    | `/`                         | Basic server info        |
-| GET    | `/health`                   | Health check             |
-| GET    | `/api/test/test-connection` | Supabase connection test |
-| GET    | `/api/test/test-storage`    | Storage access test      |
+| Method | Endpoint  | Description       |
+| ------ | --------- | ----------------- |
+| GET    | `/`       | Basic server info |
+| GET    | `/health` | Health check      |
 
 ## 📁 Project Structure
 
@@ -767,6 +763,10 @@ describe("UploadService", () => {
 ```
 
 ## 📖 Documentation
+
+### API Reference
+
+- **API_ENDPOINTS.md** - Complete API endpoint reference (28 endpoints)
 
 ### Architecture & Design
 

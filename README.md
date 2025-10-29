@@ -764,39 +764,19 @@ describe("UploadService", () => {
 
 ## 📖 Documentation
 
-### API Reference
+### 📚 Essential Documentation (8 files)
 
-- **API_ENDPOINTS.md** - Complete API endpoint reference (28 endpoints)
-
-### Architecture & Design
-
-- **ARCHITECTURE.md** - Complete architecture guide with SOLID principles
-- **MIGRATION_COMPLETE.md** - Architecture migration summary
-- **database/SECURITY_UUID_MIGRATION.md** - UUID migration guide
-
-### Security
-
-- **SECURITY_BEST_PRACTICES.md** - Security guidelines and best practices
-- **SECURITY_SUMMARY.md** - Security audit and resolutions
-
-### Storage & Configuration
-
-- **STORAGE_URL_FIX.md** - Storage URL troubleshooting (400 error fix)
-- **SECURITY_FIXES_SUMMARY.md** - All security fixes applied
-
-### Setup & Configuration
-
-- **SUPABASE_SETUP.md** - Complete database and storage setup
-- **AUTH_SETUP.md** - Authentication system documentation
-- **USER_SPECIFIC_DATA.md** - User data isolation guide
-
-### Features
-
-- **TAG_STYLES_FEATURE.md** - AI tag styles documentation
-- **BULK_UPDATE_FEATURE.md** - Bulk update operations
-- **BULK_DELETE_FEATURE.md** - Bulk delete operations
-- **BULK_REGENERATE_FEATURE.md** - Bulk AI regeneration
-- **PARALLEL_BULK_UPLOAD.md** - Real-time progress tracking
+| File                                    | Description                                 |
+| --------------------------------------- | ------------------------------------------- |
+| **README.md**                           | Main project documentation (you are here)   |
+| **API_ENDPOINTS.md**                    | Complete API reference (28 endpoints)       |
+| **ARCHITECTURE.md**                     | Layered architecture, SOLID principles, DI  |
+| **MIGRATION_COMPLETE.md**               | Architecture migration summary              |
+| **SECURITY_BEST_PRACTICES.md**          | Security guidelines and best practices      |
+| **SECURITY_SUMMARY.md**                 | Consolidated security features              |
+| **SUPABASE_SETUP.md**                   | Database and storage setup instructions     |
+| **STORAGE_URL_FIX.md**                  | Storage URL troubleshooting (400 error fix) |
+| **database/SECURITY_UUID_MIGRATION.md** | UUID migration guide (sequential ID → UUID) |
 
 ## 🩺 Health Checks
 

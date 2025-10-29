@@ -406,8 +406,9 @@ class FilesController {
     // Pipe archive to response
     archive.pipe(res);
 
-    // Track errors
+    // Track errors and used filenames
     const errors = [];
+    const usedFilenames = new Set();
     let successCount = 0;
 
     // Add files to archive
@@ -422,7 +423,7 @@ class FilesController {
           errors.push({
             id: file.id,
             filename: file.filename,
-            error: error.message,
+            error: error.message || "Download failed",
           });
           continue;
         }
@@ -433,7 +434,9 @@ class FilesController {
         // Add to archive with collision handling
         let archiveFilename = file.filename;
         let counter = 1;
-        while (archive._entriesCount && archiveFilename in archive._entries) {
+        
+        // Handle filename collisions
+        while (usedFilenames.has(archiveFilename)) {
           const extIndex = file.filename.lastIndexOf(".");
           if (extIndex > 0) {
             const name = file.filename.substring(0, extIndex);
@@ -445,13 +448,14 @@ class FilesController {
           counter++;
         }
 
+        usedFilenames.add(archiveFilename);
         archive.append(buffer, { name: archiveFilename });
         successCount++;
       } catch (error) {
         errors.push({
           id: file.id,
           filename: file.filename,
-          error: error.message,
+          error: error.message || String(error),
         });
       }
     }

@@ -25,13 +25,18 @@ class SupabaseStorageProvider extends IStorageProvider {
       throw new Error(`Storage upload failed: ${error.message}`);
     }
 
-    const { data: urlData } = this.supabase.storage
+    // Use signed URL for private buckets (expires in 1 year)
+    const { data: urlData, error: urlError } = await this.supabase.storage
       .from(this.bucketName)
-      .getPublicUrl(path);
+      .createSignedUrl(path, 31536000); // 1 year in seconds
+
+    if (urlError) {
+      throw new Error(`Failed to generate signed URL: ${urlError.message}`);
+    }
 
     return {
       path: data.path,
-      publicUrl: urlData.publicUrl,
+      publicUrl: urlData.signedUrl,
     };
   }
 
@@ -60,11 +65,16 @@ class SupabaseStorageProvider extends IStorageProvider {
   }
 
   async getPublicUrl(path) {
-    const { data } = this.supabase.storage
+    // Use signed URL for private buckets (expires in 1 year)
+    const { data, error } = await this.supabase.storage
       .from(this.bucketName)
-      .getPublicUrl(path);
+      .createSignedUrl(path, 31536000); // 1 year in seconds
 
-    return data.publicUrl;
+    if (error) {
+      throw new Error(`Failed to generate signed URL: ${error.message}`);
+    }
+
+    return data.signedUrl;
   }
 
   async fileExists(path) {

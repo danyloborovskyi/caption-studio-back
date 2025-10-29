@@ -172,15 +172,17 @@ class UploadService {
 
     Logger.audit("ai_analysis_requested", userId, { fileId });
 
-    const aiResult = await this.aiService.analyzeImage(
-      file.publicUrl,
-      tagStyle
-    );
+    // Generate fresh signed URL for AI analysis (old URL might be expired)
+    const freshUrl = await this.storageProvider.getPublicUrl(file.filePath);
+
+    const aiResult = await this.aiService.analyzeImage(freshUrl, tagStyle);
 
     if (aiResult.success) {
+      // Update with new signed URL and AI results
       const updatedFile = await this.fileRepository.update(fileId, userId, {
         description: aiResult.description,
         tags: aiResult.tags,
+        public_url: freshUrl, // Update with fresh signed URL
         status: "completed",
         updated_at: new Date().toISOString(),
       });
@@ -199,6 +201,56 @@ class UploadService {
 
       throw new ExternalServiceError("AI", aiResult.error);
     }
+  }
+
+  /**
+   * Refresh signed URL for a file
+   */
+  async refreshFileUrl(fileId, userId) {
+    const file = await this.fileRepository.findById(fileId, userId);
+
+    if (!file) {
+      throw new ValidationError("File not found");
+    }
+
+    // Generate fresh signed URL
+    const freshUrl = await this.storageProvider.getPublicUrl(file.filePath);
+
+    // Update database with fresh URL
+    const updatedFile = await this.fileRepository.update(fileId, userId, {
+      public_url: freshUrl,
+      updated_at: new Date().toISOString(),
+    });
+
+    return updatedFile;
+  }
+
+  /**
+   * Refresh signed URLs for multiple files
+   */
+  async refreshFileUrls(files, userId) {
+    const refreshedFiles = [];
+
+    for (const file of files) {
+      try {
+        const freshUrl = await this.storageProvider.getPublicUrl(file.filePath);
+        file.publicUrl = freshUrl;
+
+        // Update database with fresh URL
+        await this.fileRepository.update(file.id, userId, {
+          public_url: freshUrl,
+        });
+
+        refreshedFiles.push(file);
+      } catch (error) {
+        Logger.error("Failed to refresh URL", error, {
+          userId,
+          fileId: file.id,
+        });
+      }
+    }
+
+    return refreshedFiles;
   }
 
   /**

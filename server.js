@@ -116,11 +116,9 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Error handling middleware
-app.use((error, req, res, next) => {
-  console.error(error);
-  res.status(500).json({ error: "Internal server error" });
-});
+// Centralized error handling middleware
+const { errorHandler } = require("./utils/errorHandler");
+app.use(errorHandler);
 
 // 404 handler
 app.use("*", (req, res) => {

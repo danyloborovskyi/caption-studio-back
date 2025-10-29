@@ -53,7 +53,7 @@ After:  id = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11' (UUID)
 ```sql
 -- In Supabase Dashboard → Database → Backups
 -- Or use pg_dump
-pg_dump -h your-project.supabase.co -U postgres -d postgres > backup.sql
+pg_dump -h YOUR_PROJECT_URL.supabase.co -U postgres -d postgres > backup.sql
 ```
 
 ### Step 2: Test in Development First

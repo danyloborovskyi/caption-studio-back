@@ -188,15 +188,45 @@ This fix addresses:
 
 The codebase now uses cryptographically secure random number generation for all filename generation operations. No weak random number generation remains, and no DES encryption was found that needed to be replaced.
 
-## Next Steps (Optional Improvements)
+## ⚠️ CRITICAL: Sequential ID Vulnerability Discovered
 
-1. Consider adding rate limiting to upload endpoints
-2. Implement file content validation (not just mimetype checking)
-3. Add virus scanning for uploaded files
-4. Implement stricter file size limits per user tier
-5. Add audit logging for all file operations
+**Issue**: Database uses sequential integer IDs (524, 525, 526...) instead of UUIDs
+
+**Risk**:
+
+- Information disclosure (reveals total record count)
+- IDOR enumeration attacks
+- Business intelligence leakage
+- Correlation attacks
+
+**Solution**: Migrate to UUID primary keys
+
+**Status**: 🔴 **MIGRATION REQUIRED**  
+**Files Created**:
+
+- `database/migrate-to-uuid-ids.sql` - Migration script
+- `database/SECURITY_UUID_MIGRATION.md` - Full documentation
+
+**Action Required**: Run UUID migration in Supabase SQL Editor
 
 ---
 
-**Status**: ✅ COMPLETE  
-**No further action required**
+## Next Steps (Required)
+
+1. **🔴 HIGH PRIORITY**: Migrate to UUID primary keys (see SECURITY_UUID_MIGRATION.md)
+2. Test migration in development environment first
+3. Run migration during low-traffic period
+4. Verify all endpoints work with UUIDs
+
+## Optional Improvements
+
+1. Add virus scanning for uploaded files
+2. Implement stricter file size limits per user tier
+3. Add audit trail to separate table
+4. Implement file content validation (magic bytes)
+5. Add CSP reporting endpoint
+
+---
+
+**Status**: ⚠️ **UUID MIGRATION PENDING**  
+**Security Level**: 🟡 Medium (RLS protects, but IDs leak info)

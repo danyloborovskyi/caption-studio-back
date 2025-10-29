@@ -22,10 +22,24 @@ router.post("/signup", async (req, res) => {
     }
 
     // Validate password strength
-    if (password.length < 6) {
+    if (password.length < 12) {
       return res.status(400).json({
         success: false,
-        error: "Password must be at least 6 characters long",
+        error: "Password must be at least 12 characters long",
+      });
+    }
+
+    // Check password complexity
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumber = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+
+    if (!hasUpperCase || !hasLowerCase || !hasNumber || !hasSpecialChar) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
       });
     }
 
@@ -318,10 +332,24 @@ router.post("/reset-password", async (req, res) => {
     }
 
     // Validate password strength
-    if (new_password.length < 6) {
+    if (new_password.length < 12) {
       return res.status(400).json({
         success: false,
-        error: "Password must be at least 6 characters long",
+        error: "Password must be at least 12 characters long",
+      });
+    }
+
+    // Check password complexity
+    const hasUpperCase = /[A-Z]/.test(new_password);
+    const hasLowerCase = /[a-z]/.test(new_password);
+    const hasNumber = /\d/.test(new_password);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(new_password);
+
+    if (!hasUpperCase || !hasLowerCase || !hasNumber || !hasSpecialChar) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
       });
     }
 
@@ -400,10 +428,24 @@ router.post("/update-password", async (req, res) => {
     }
 
     // Validate new password strength
-    if (new_password.length < 6) {
+    if (new_password.length < 12) {
       return res.status(400).json({
         success: false,
-        error: "New password must be at least 6 characters long",
+        error: "New password must be at least 12 characters long",
+      });
+    }
+
+    // Check password complexity
+    const hasUpperCase = /[A-Z]/.test(new_password);
+    const hasLowerCase = /[a-z]/.test(new_password);
+    const hasNumber = /\d/.test(new_password);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(new_password);
+
+    if (!hasUpperCase || !hasLowerCase || !hasNumber || !hasSpecialChar) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
       });
     }
 

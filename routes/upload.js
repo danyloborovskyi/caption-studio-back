@@ -155,6 +155,28 @@ Format your response as JSON:
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
 
+// Security logging function
+function logSecurityEvent(event, userId, details = {}) {
+  const timestamp = new Date().toISOString();
+  console.log(
+    JSON.stringify({
+      timestamp,
+      event,
+      userId,
+      ...details,
+      severity: "security",
+    })
+  );
+}
+
+// Sanitize filename to prevent path traversal
+function sanitizeFilename(filename) {
+  // Remove any path components
+  const basename = filename.replace(/^.*[\\\/]/, "");
+  // Remove dangerous characters
+  return basename.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
 // File filter for images (OpenAI Vision compatible)
 const fileFilter = (req, file, cb) => {
   const allowedMimes = [
@@ -166,9 +188,21 @@ const fileFilter = (req, file, cb) => {
     // Remove svg as OpenAI doesn't support it
   ];
 
+  // Validate file size (max 10MB)
+  if (file.size && file.size > 10 * 1024 * 1024) {
+    return cb(new Error("File size exceeds 10MB limit"), false);
+  }
+
+  // Sanitize original filename
+  file.originalname = sanitizeFilename(file.originalname);
+
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
+    logSecurityEvent("invalid_file_type", req.user?.id, {
+      mimetype: file.mimetype,
+      filename: file.originalname,
+    });
     cb(
       new Error(
         `Only these image formats are supported: ${allowedMimes.join(", ")}`
@@ -313,12 +347,33 @@ router.post("/image", upload.single("image"), async (req, res) => {
 
     const { originalname, buffer, mimetype, size } = req.file;
 
+    // Sanitize filename
+    const sanitizedFilename = sanitizeFilename(originalname);
+
     console.log(`📤 User ${userEmail} (${userId}) uploading image...`);
+    logSecurityEvent("file_upload_attempt", userId, {
+      filename: sanitizedFilename,
+      size,
+      mimetype,
+    });
 
     // Generate unique filename
     const timestamp = Date.now();
     const randomString = generateSecureRandomString(8);
-    const fileExtension = originalname.split(".").pop();
+    const fileExtension = sanitizedFilename.split(".").pop().toLowerCase();
+
+    // Validate file extension
+    const allowedExtensions = ["jpg", "jpeg", "png", "gif", "webp"];
+    if (!allowedExtensions.includes(fileExtension)) {
+      logSecurityEvent("invalid_file_extension", userId, {
+        extension: fileExtension,
+      });
+      return res.status(400).json({
+        success: false,
+        error: "Invalid file extension",
+      });
+    }
+
     const fileName = `${timestamp}-${randomString}.${fileExtension}`;
 
     // User-specific folder structure
@@ -335,12 +390,22 @@ router.post("/image", upload.single("image"), async (req, res) => {
 
     if (error) {
       console.error("Supabase upload error:", error);
+      logSecurityEvent("file_upload_failed", userId, {
+        error: error.message,
+        filename: fileName,
+      });
       return res.status(500).json({
         success: false,
         error: "Failed to upload image to storage",
         details: error.message,
       });
     }
+
+    logSecurityEvent("file_upload_success", userId, {
+      filename: fileName,
+      size,
+      path: filePath,
+    });
 
     // Get public URL for the uploaded file
     const { data: publicData } = supabase.storage

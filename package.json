@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "check-secrets": "node check-secrets.js",
+    "pre-commit": "node check-secrets.js"
   },
   "keywords": [
     "express",

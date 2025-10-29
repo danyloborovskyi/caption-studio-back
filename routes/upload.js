@@ -1,9 +1,20 @@
 const express = require("express");
 const multer = require("multer");
+const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
 const OpenAI = require("openai");
 const { authenticateUser } = require("../middleware/auth");
 const router = express.Router();
+
+// Helper function to generate cryptographically secure random strings
+function generateSecureRandomString(length = 6) {
+  // Generate random bytes and convert to URL-safe base64-like string
+  return crypto
+    .randomBytes(Math.ceil(length * 0.75))
+    .toString("base64")
+    .replace(/[+/=]/g, "")
+    .substring(0, length);
+}
 
 // Helper function to create user-specific Supabase client
 function getSupabaseClient(accessToken) {
@@ -306,7 +317,7 @@ router.post("/image", upload.single("image"), async (req, res) => {
 
     // Generate unique filename
     const timestamp = Date.now();
-    const randomString = Math.random().toString(36).substring(2, 8);
+    const randomString = generateSecureRandomString(8);
     const fileExtension = originalname.split(".").pop();
     const fileName = `${timestamp}-${randomString}.${fileExtension}`;
 
@@ -494,7 +505,7 @@ router.post("/upload-and-analyze", upload.single("image"), async (req, res) => {
 
     // Generate unique filename
     const timestamp = Date.now();
-    const randomString = Math.random().toString(36).substring(2, 8);
+    const randomString = generateSecureRandomString(8);
     const fileExtension = originalname.split(".").pop();
     const fileName = `${timestamp}-${randomString}.${fileExtension}`;
 
@@ -677,7 +688,7 @@ router.post(
         try {
           // Generate unique filename
           const timestamp = Date.now();
-          const randomString = Math.random().toString(36).substring(2, 8);
+          const randomString = generateSecureRandomString(8);
           const fileExtension = originalname.split(".").pop();
           const fileName = `${timestamp}-${randomString}-${i}.${fileExtension}`;
 

@@ -111,6 +111,7 @@ describe("Authentication Endpoints", () => {
             last_name: "User",
             full_name: "Test User",
           },
+          emailRedirectTo: "http://localhost:3000/upload",
         },
       });
     });

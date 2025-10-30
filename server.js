@@ -115,12 +115,20 @@ app.get("/", (req, res) => {
   });
 });
 
-// Health check endpoint
+// Health check endpoint for monitoring and load balancers
 app.get("/health", (req, res) => {
   res.json({
     status: "healthy",
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
+    uptime: Math.floor(process.uptime()),
+    environment: process.env.NODE_ENV || "development",
+    version: "1.0.0",
+    memory: {
+      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      unit: "MB",
+    },
+    nodeVersion: process.version,
   });
 });
 

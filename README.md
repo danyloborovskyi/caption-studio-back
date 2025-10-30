@@ -825,12 +825,86 @@ curl http://localhost:3000/api/test/test-storage
 
 ## 🚀 Deployment
 
+### Auto-Deployment with GitHub Actions
+
+This project includes **automated deployment** to Render on every push to `main` after all tests pass.
+
+#### Setup Auto-Deployment
+
+1. **Configure GitHub Secrets** (in your repository settings):
+
+   - `RENDER_DEPLOY_HOOK` - Your Render deploy hook URL
+   - `RENDER_APP_URL` - Your deployed app URL (e.g., `https://your-app.onrender.com`)
+
+2. **Push to main branch**:
+
+   ```bash
+   git push origin main
+   ```
+
+3. **Monitor deployment**:
+   - Go to GitHub Actions tab to see deployment progress
+   - Deployment runs only if all tests pass (173 tests)
+
+📚 **Full deployment guide:** See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed instructions
+
+### Health Check Endpoint
+
+Monitor your deployment with the built-in health endpoint:
+
+```bash
+curl https://your-app.onrender.com/health
+```
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-10-30T22:30:00.000Z",
+  "uptime": 3600,
+  "environment": "production",
+  "version": "1.0.0",
+  "memory": {
+    "used": 45,
+    "total": 128,
+    "unit": "MB"
+  },
+  "nodeVersion": "v18.18.0"
+}
+```
+
+**Use cases:**
+
+- CI/CD deployment verification
+- Load balancer health checks
+- Uptime monitoring (UptimeRobot, Pingdom)
+- Service status dashboard
+
 ### Environment Setup
 
 1. Set `NODE_ENV=production`
 2. Configure production Supabase credentials
 3. Update `FRONTEND_URL` to production domain
 4. Ensure all environment variables are set
+
+### Deployment Pipeline
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Push to main                                           │
+├─────────────────────────────────────────────────────────┤
+│  ✅ Run 173 tests (Node 18.x, 20.x, 22.x)              │
+├─────────────────────────────────────────────────────────┤
+│  ✅ Security scan (npm audit, secret detection)        │
+├─────────────────────────────────────────────────────────┤
+│  ✅ Build verification                                  │
+├─────────────────────────────────────────────────────────┤
+│  🚀 Auto-deploy to Render (only if all pass)           │
+├─────────────────────────────────────────────────────────┤
+│  ✅ Health check verification                           │
+└─────────────────────────────────────────────────────────┘
+```
 
 ### Production Checklist
 
@@ -855,6 +929,14 @@ curl http://localhost:3000/api/test/test-storage
 
 - ✅ OpenAI API key set with billing enabled
 - ✅ All environment variables set
+
+#### CI/CD
+
+- ✅ Automated testing on every push
+- ✅ Multi-version Node.js testing (18, 20, 22)
+- ✅ Security scanning integrated
+- ✅ Auto-deployment configured
+- ✅ Health check verification
 
 #### Architecture
 

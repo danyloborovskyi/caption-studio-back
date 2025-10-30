@@ -21,7 +21,7 @@ class File {
 
   // Domain logic methods
   isImage() {
-    return this.mimeType?.startsWith("image/");
+    return this.mimeType ? this.mimeType.startsWith("image/") : false;
   }
 
   hasAIAnalysis() {

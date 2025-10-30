@@ -63,6 +63,7 @@ class AuthController {
       password,
       options: {
         data: userMetadata,
+        emailRedirectTo: `${process.env.FRONTEND_URL}/upload`,
       },
     });
 

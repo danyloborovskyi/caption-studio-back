@@ -273,10 +273,9 @@ caption-studio-back/
 │   ├── storage-policies.sql        # Storage bucket policies
 │   └── avatar-storage-setup.sql    # Avatar storage configuration
 ├── docs/                           # Documentation
-├── STORAGE_URL_FIX.md              # Storage URL troubleshooting guide
-│   ├── ARCHITECTURE.md             # Architecture documentation
-│   ├── MIGRATION_COMPLETE.md       # Migration summary
-│   └── SECURITY_*.md               # Security documentation
+├── ARCHITECTURE.md                 # Architecture documentation
+├── API_ENDPOINTS.md                # Complete API reference
+├── SUPABASE_SETUP.md               # Database and storage setup
 ├── examples/                       # Frontend Implementation Examples
 ├── .env.template                   # Environment variables template
 ├── .gitignore                      # Git ignore rules
@@ -779,18 +778,14 @@ describe("UploadService", () => {
 
 ## 📖 Documentation
 
-### 📚 Essential Documentation (8 files)
+### 📚 Essential Documentation
 
 | File                                    | Description                                 |
 | --------------------------------------- | ------------------------------------------- |
 | **README.md**                           | Main project documentation (you are here)   |
 | **API_ENDPOINTS.md**                    | Complete API reference (28 endpoints)       |
 | **ARCHITECTURE.md**                     | Layered architecture, SOLID principles, DI  |
-| **MIGRATION_COMPLETE.md**               | Architecture migration summary              |
-| **SECURITY_BEST_PRACTICES.md**          | Security guidelines and best practices      |
-| **SECURITY_SUMMARY.md**                 | Consolidated security features              |
 | **SUPABASE_SETUP.md**                   | Database and storage setup instructions     |
-| **STORAGE_URL_FIX.md**                  | Storage URL troubleshooting (400 error fix) |
 | **database/SECURITY_UUID_MIGRATION.md** | UUID migration guide (sequential ID → UUID) |
 
 ## 🩺 Health Checks

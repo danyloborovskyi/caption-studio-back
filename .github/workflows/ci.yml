@@ -111,15 +111,29 @@ jobs:
             -d '{}'
         continue-on-error: false
 
-      - name: Wait for deployment
-        run: sleep 30
+      - name: Wait for deployment to start
+        run: sleep 60
 
-      - name: Health check
+      - name: Health check with retry
         run: |
-          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.RENDER_APP_URL }}/health)
-          if [ $response -eq 200 ]; then
-            echo "✅ Deployment successful! Health check passed."
-          else
-            echo "❌ Health check failed with status $response"
-            exit 1
-          fi
+          echo "🔍 Waiting for Render deployment to complete..."
+          MAX_ATTEMPTS=10
+          RETRY_DELAY=30
+          
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            echo "Attempt $i of $MAX_ATTEMPTS..."
+            response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.RENDER_APP_URL }}/health || echo "000")
+            
+            if [ "$response" -eq 200 ]; then
+              echo "✅ Deployment successful! Health check passed."
+              exit 0
+            else
+              echo "⏳ Health check returned status $response, retrying in ${RETRY_DELAY}s..."
+              if [ $i -lt $MAX_ATTEMPTS ]; then
+                sleep $RETRY_DELAY
+              fi
+            fi
+          done
+          
+          echo "❌ Health check failed after $MAX_ATTEMPTS attempts"
+          exit 1

@@ -691,7 +691,22 @@ All responses use **camelCase** for consistency:
 - **Row-Level Security (RLS)** - Database policies ensure complete data isolation
 - **Ownership Verification** - Users can only access their own files
 - **Strong Password Policy** - 12+ chars, uppercase, lowercase, number, special char
-- **Rate Limiting** - 5 login attempts per 15 minutes, 100 API requests per 15 minutes
+- **Rate Limiting** - Protection against brute force attacks
+
+#### Rate Limiting Details
+
+| Endpoint Type                  | Limit        | Window     | Wait Time if Exceeded |
+| ------------------------------ | ------------ | ---------- | --------------------- |
+| Authentication (`/api/auth/*`) | 10 attempts  | 15 minutes | 15 minutes            |
+| General API (`/api/*`)         | 100 requests | 15 minutes | 15 minutes            |
+
+**Response Headers:**
+
+- `RateLimit-Limit` - Maximum requests allowed
+- `RateLimit-Remaining` - Requests remaining in current window
+- `RateLimit-Reset` - Timestamp when the limit resets
+
+**Error Message:** "Too many authentication attempts, please try again later. Please wait 15 minutes."
 
 ### Data Protection
 

@@ -16,108 +16,46 @@ describe("UserController", () => {
   let mockSupabase;
   let mockSupabaseAdmin;
   let mockUserSupabase;
-
-  // Helper function to reconfigure createClient with local mocks and reload modules
-  const reconfigureCreateClient = (
-    localSupabase,
-    localAdmin,
-    localUserSupabase
-  ) => {
-    createClient.mockImplementation((url, keyOrOptions) => {
-      if (
-        typeof keyOrOptions === "string" &&
-        keyOrOptions.includes("service")
-      ) {
-        return localAdmin || mockSupabaseAdmin;
-      }
-      if (typeof keyOrOptions === "object" && keyOrOptions.global) {
-        return localUserSupabase || mockUserSupabase;
-      }
-      return localSupabase || mockSupabase;
-    });
-
-    // Clear UserController from cache so it re-initializes with new mocks
-    delete require.cache[require.resolve("../../controllers/UserController")];
-    // Reload server to use the new UserController
-    delete require.cache[require.resolve("../../server")];
-    app = require("../../server");
-  };
+  let mockStorage;
 
   beforeAll(() => {
     process.env.NODE_ENV = "test";
     process.env.SUPABASE_URL = "https://test.supabase.co";
     process.env.SUPABASE_ANON_KEY = "test-anon-key";
     process.env.SUPABASE_SERVICE_KEY = "test-service-role-key";
-  });
 
-  beforeEach(() => {
-    jest.clearAllMocks();
+    // Create persistent mock storage object
+    mockStorage = {
+      upload: jest.fn(),
+      remove: jest.fn(),
+      getPublicUrl: jest.fn(),
+    };
 
-    // Mock Supabase clients with default SUCCESS implementations
-    // Individual tests will override these for error scenarios
+    // Create persistent mocks with jest.fn() - these will be reused across all tests
     mockSupabase = {
       auth: {
-        getUser: jest.fn().mockResolvedValue({
-          data: {
-            user: {
-              id: "user-123",
-              email: "test@example.com",
-              confirmed_at: "2024-01-01",
-              user_metadata: {},
-              created_at: "2024-01-01",
-              updated_at: "2024-01-01",
-            },
-          },
-          error: null,
-        }),
+        getUser: jest.fn(),
       },
     };
 
     mockSupabaseAdmin = {
       auth: {
         admin: {
-          updateUserById: jest.fn().mockResolvedValue({
-            data: {
-              user: {
-                id: "user-123",
-                email: "test@example.com",
-                user_metadata: {},
-                updated_at: "2024-01-01",
-              },
-            },
-            error: null,
-          }),
+          updateUserById: jest.fn(),
         },
       },
     };
 
     mockUserSupabase = {
       auth: {
-        getUser: jest.fn().mockResolvedValue({
-          data: {
-            user: {
-              id: "user-123",
-              user_metadata: {},
-            },
-          },
-          error: null,
-        }),
+        getUser: jest.fn(),
       },
       storage: {
-        from: jest.fn().mockReturnValue({
-          upload: jest.fn().mockResolvedValue({
-            data: { path: "avatars/user-123/test.jpg" },
-            error: null,
-          }),
-          remove: jest.fn().mockResolvedValue({ error: null }),
-          getPublicUrl: jest.fn().mockReturnValue({
-            data: { publicUrl: "https://example.com/avatar.jpg" },
-          }),
-        }),
+        from: jest.fn().mockReturnValue(mockStorage),
       },
     };
 
-    // Mock auth middleware FIRST (before loading server)
+    // Mock auth middleware
     const authMock = require("../../middleware/auth");
     authMock.authenticateUser = (req, res, next) => {
       req.user = { id: "user-123", email: "test@example.com" };
@@ -125,34 +63,81 @@ describe("UserController", () => {
       next();
     };
 
-    // Setup createClient BEFORE loading server (critical for module-level initialization)
-    createClient.mockImplementation((url, keyOrOptions) => {
-      // Check if it's admin client (service key)
-      if (
-        typeof keyOrOptions === "string" &&
-        keyOrOptions.includes("service")
-      ) {
+    // Setup createClient to return appropriate mock based on parameters
+    // createClient(url, key, options?) - 3 parameters
+    createClient.mockImplementation((url, key, options) => {
+      // Check if it's admin client (service key as second param)
+      if (typeof key === "string" && key.includes("service")) {
         return mockSupabaseAdmin;
       }
-      // Check if it's user-specific client (has options object with headers)
-      if (typeof keyOrOptions === "object" && keyOrOptions.global) {
+      // Check if it's user-specific client (has options object with global headers)
+      if (options && typeof options === "object" && options.global) {
         return mockUserSupabase;
       }
       // Default anon client
       return mockSupabase;
     });
 
-    // Clear UserController from cache so it re-initializes with our mocks
-    delete require.cache[require.resolve("../../controllers/UserController")];
-
-    // Load app
-    delete require.cache[require.resolve("../../server")];
+    // Load app ONCE with mocks in place
     app = require("../../server");
+  });
+
+  beforeEach(() => {
+    // Reset mock call history and set default implementations
+    jest.clearAllMocks();
+
+    // Set default successful responses for each test
+    mockSupabase.auth.getUser.mockResolvedValue({
+      data: {
+        user: {
+          id: "user-123",
+          email: "test@example.com",
+          confirmed_at: "2024-01-01",
+          user_metadata: {},
+          created_at: "2024-01-01",
+          updated_at: "2024-01-01",
+        },
+      },
+      error: null,
+    });
+
+    mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValue({
+      data: {
+        user: {
+          id: "user-123",
+          email: "test@example.com",
+          user_metadata: {},
+          updated_at: "2024-01-01",
+        },
+      },
+      error: null,
+    });
+
+    mockUserSupabase.auth.getUser.mockResolvedValue({
+      data: {
+        user: {
+          id: "user-123",
+          user_metadata: {},
+        },
+      },
+      error: null,
+    });
+
+    mockStorage.upload.mockResolvedValue({
+      data: { path: "avatars/user-123/test.jpg" },
+      error: null,
+    });
+
+    mockStorage.remove.mockResolvedValue({ error: null });
+
+    mockStorage.getPublicUrl.mockReturnValue({
+      data: { publicUrl: "https://example.com/avatar.jpg" },
+    });
   });
 
   describe("GET /api/user/profile", () => {
     it("should get user profile successfully", async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: {
           user: {
             id: "user-123",
@@ -195,38 +180,20 @@ describe("UserController", () => {
     });
 
     it("should handle user with minimal metadata", async () => {
-      // Override the default mock for this specific test
-      const localMockSupabase = {
-        auth: {
-          getUser: jest.fn().mockResolvedValue({
-            data: {
-              user: {
-                id: "user-123",
-                email: "test@example.com",
-                confirmed_at: null, // null = not confirmed
-                phone: null,
-                user_metadata: {},
-                created_at: "2024-01-01T00:00:00Z",
-                updated_at: "2024-01-02T00:00:00Z",
-                last_sign_in_at: null,
-              },
-            },
-            error: null,
-          }),
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
+        data: {
+          user: {
+            id: "user-123",
+            email: "test@example.com",
+            confirmed_at: null,
+            phone: null,
+            user_metadata: {},
+            created_at: "2024-01-01T00:00:00Z",
+            updated_at: "2024-01-02T00:00:00Z",
+            last_sign_in_at: null,
+          },
         },
-      };
-
-      createClient.mockImplementation((url, keyOrOptions) => {
-        if (
-          typeof keyOrOptions === "string" &&
-          keyOrOptions.includes("service")
-        ) {
-          return mockSupabaseAdmin;
-        }
-        if (typeof keyOrOptions === "object" && keyOrOptions.global) {
-          return mockUserSupabase;
-        }
-        return localMockSupabase; // Use local mock instead
+        error: null,
       });
 
       const response = await request(app)
@@ -250,26 +217,9 @@ describe("UserController", () => {
     });
 
     it("should handle invalid token", async () => {
-      const localMockSupabase = {
-        auth: {
-          getUser: jest.fn().mockResolvedValue({
-            data: { user: null },
-            error: { message: "Invalid token" },
-          }),
-        },
-      };
-
-      createClient.mockImplementation((url, keyOrOptions) => {
-        if (
-          typeof keyOrOptions === "string" &&
-          keyOrOptions.includes("service")
-        ) {
-          return mockSupabaseAdmin;
-        }
-        if (typeof keyOrOptions === "object" && keyOrOptions.global) {
-          return mockUserSupabase;
-        }
-        return localMockSupabase;
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
+        data: { user: null },
+        error: { message: "Invalid token" },
       });
 
       const response = await request(app)
@@ -281,26 +231,9 @@ describe("UserController", () => {
     });
 
     it("should handle expired token", async () => {
-      const localMockSupabase = {
-        auth: {
-          getUser: jest.fn().mockResolvedValue({
-            data: { user: null },
-            error: null,
-          }),
-        },
-      };
-
-      createClient.mockImplementation((url, keyOrOptions) => {
-        if (
-          typeof keyOrOptions === "string" &&
-          keyOrOptions.includes("service")
-        ) {
-          return mockSupabaseAdmin;
-        }
-        if (typeof keyOrOptions === "object" && keyOrOptions.global) {
-          return mockUserSupabase;
-        }
-        return localMockSupabase;
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
+        data: { user: null },
+        error: null,
       });
 
       const response = await request(app)
@@ -313,55 +246,31 @@ describe("UserController", () => {
 
   describe("POST /api/user/update-profile", () => {
     it("should update firstName and lastName successfully", async () => {
-      const localMockSupabase = {
-        auth: {
-          getUser: jest.fn().mockResolvedValue({
-            data: {
-              user: {
-                user_metadata: {
-                  first_name: "Old",
-                  last_name: "Name",
-                },
-              },
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
+        data: {
+          user: {
+            user_metadata: {
+              first_name: "Old",
+              last_name: "Name",
             },
-          }),
-        },
-      };
-
-      const localMockAdmin = {
-        auth: {
-          admin: {
-            updateUserById: jest.fn().mockResolvedValue({
-              data: {
-                user: {
-                  id: "user-123",
-                  email: "test@example.com",
-                  user_metadata: {
-                    first_name: "John",
-                    last_name: "Doe",
-                    full_name: "John Doe",
-                    avatar_url: "https://example.com/avatar.jpg",
-                  },
-                  updated_at: "2024-01-03T00:00:00Z",
-                },
-              },
-              error: null,
-            }),
           },
         },
-      };
+      });
 
-      createClient.mockImplementation((url, keyOrOptions) => {
-        if (
-          typeof keyOrOptions === "string" &&
-          keyOrOptions.includes("service")
-        ) {
-          return localMockAdmin;
-        }
-        if (typeof keyOrOptions === "object" && keyOrOptions.global) {
-          return mockUserSupabase;
-        }
-        return localMockSupabase;
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
+        data: {
+          user: {
+            id: "user-123",
+            email: "test@example.com",
+            user_metadata: {
+              first_name: "John",
+              last_name: "Doe",
+              full_name: "John Doe",
+            },
+            updated_at: "2024-01-03T00:00:00Z",
+          },
+        },
+        error: null,
       });
 
       const response = await request(app)
@@ -381,44 +290,32 @@ describe("UserController", () => {
     });
 
     it("should update only firstName", async () => {
-      const localSupabase = {
-        auth: {
-          getUser: jest.fn().mockResolvedValue({
-            data: {
-              user: {
-                user_metadata: {
-                  first_name: "Old",
-                  last_name: "Doe",
-                },
-              },
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
+        data: {
+          user: {
+            user_metadata: {
+              first_name: "Old",
+              last_name: "Doe",
             },
-          }),
-        },
-      };
-
-      const localAdmin = {
-        auth: {
-          admin: {
-            updateUserById: jest.fn().mockResolvedValue({
-              data: {
-                user: {
-                  id: "user-123",
-                  email: "test@example.com",
-                  user_metadata: {
-                    first_name: "John",
-                    last_name: "Doe",
-                    full_name: "John Doe",
-                  },
-                  updated_at: "2024-01-03T00:00:00Z",
-                },
-              },
-              error: null,
-            }),
           },
         },
-      };
+      });
 
-      reconfigureCreateClient(localSupabase, localAdmin);
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
+        data: {
+          user: {
+            id: "user-123",
+            email: "test@example.com",
+            user_metadata: {
+              first_name: "John",
+              last_name: "Doe",
+              full_name: "John Doe",
+            },
+            updated_at: "2024-01-03T00:00:00Z",
+          },
+        },
+        error: null,
+      });
 
       const response = await request(app)
         .post("/api/user/update-profile")
@@ -430,44 +327,32 @@ describe("UserController", () => {
     });
 
     it("should update only lastName", async () => {
-      const localSupabase = {
-        auth: {
-          getUser: jest.fn().mockResolvedValue({
-            data: {
-              user: {
-                user_metadata: {
-                  first_name: "John",
-                  last_name: "Old",
-                },
-              },
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
+        data: {
+          user: {
+            user_metadata: {
+              first_name: "John",
+              last_name: "Old",
             },
-          }),
-        },
-      };
-
-      const localAdmin = {
-        auth: {
-          admin: {
-            updateUserById: jest.fn().mockResolvedValue({
-              data: {
-                user: {
-                  id: "user-123",
-                  email: "test@example.com",
-                  user_metadata: {
-                    first_name: "John",
-                    last_name: "Smith",
-                    full_name: "John Smith",
-                  },
-                  updated_at: "2024-01-03T00:00:00Z",
-                },
-              },
-              error: null,
-            }),
           },
         },
-      };
+      });
 
-      reconfigureCreateClient(localSupabase, localAdmin);
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
+        data: {
+          user: {
+            id: "user-123",
+            email: "test@example.com",
+            user_metadata: {
+              first_name: "John",
+              last_name: "Smith",
+              full_name: "John Smith",
+            },
+            updated_at: "2024-01-03T00:00:00Z",
+          },
+        },
+        error: null,
+      });
 
       const response = await request(app)
         .post("/api/user/update-profile")
@@ -480,37 +365,25 @@ describe("UserController", () => {
     });
 
     it("should trim whitespace from names", async () => {
-      const localSupabase = {
-        auth: {
-          getUser: jest.fn().mockResolvedValue({
-            data: { user: { user_metadata: {} } },
-          }),
-        },
-      };
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
+        data: { user: { user_metadata: {} } },
+      });
 
-      const localAdmin = {
-        auth: {
-          admin: {
-            updateUserById: jest.fn().mockResolvedValue({
-              data: {
-                user: {
-                  id: "user-123",
-                  email: "test@example.com",
-                  user_metadata: {
-                    first_name: "John",
-                    last_name: "Doe",
-                    full_name: "John Doe",
-                  },
-                  updated_at: "2024-01-03T00:00:00Z",
-                },
-              },
-              error: null,
-            }),
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
+        data: {
+          user: {
+            id: "user-123",
+            email: "test@example.com",
+            user_metadata: {
+              first_name: "John",
+              last_name: "Doe",
+              full_name: "John Doe",
+            },
+            updated_at: "2024-01-03T00:00:00Z",
           },
         },
-      };
-
-      reconfigureCreateClient(localSupabase, localAdmin);
+        error: null,
+      });
 
       const response = await request(app)
         .post("/api/user/update-profile")
@@ -521,7 +394,7 @@ describe("UserController", () => {
         });
 
       expect(response.status).toBe(200);
-      expect(localAdmin.auth.admin.updateUserById).toHaveBeenCalledWith(
+      expect(mockSupabaseAdmin.auth.admin.updateUserById).toHaveBeenCalledWith(
         "user-123",
         expect.objectContaining({
           user_metadata: expect.objectContaining({
@@ -533,11 +406,11 @@ describe("UserController", () => {
     });
 
     it("should handle empty metadata", async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: { user: { user_metadata: {} } },
       });
 
-      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValue({
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
         data: {
           user: {
             id: "user-123",
@@ -571,26 +444,14 @@ describe("UserController", () => {
     });
 
     it("should handle Supabase update error", async () => {
-      const localSupabase = {
-        auth: {
-          getUser: jest.fn().mockResolvedValue({
-            data: { user: { user_metadata: {} } },
-          }),
-        },
-      };
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
+        data: { user: { user_metadata: {} } },
+      });
 
-      const localAdmin = {
-        auth: {
-          admin: {
-            updateUserById: jest.fn().mockResolvedValue({
-              data: null,
-              error: { message: "Update failed" },
-            }),
-          },
-        },
-      };
-
-      reconfigureCreateClient(localSupabase, localAdmin);
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
+        data: null,
+        error: { message: "Update failed" },
+      });
 
       const response = await request(app)
         .post("/api/user/update-profile")
@@ -604,19 +465,8 @@ describe("UserController", () => {
 
   describe("POST /api/user/avatar", () => {
     it("should upload avatar successfully", async () => {
-      const mockStorage = {
-        upload: jest.fn().mockResolvedValue({
-          data: { path: "avatars/user-123/file.jpg" },
-          error: null,
-        }),
-        remove: jest.fn().mockResolvedValue({ error: null }),
-        getPublicUrl: jest.fn().mockReturnValue({
-          data: { publicUrl: "https://example.com/avatar.jpg" },
-        }),
-      };
-
-      mockUserSupabase.storage.from.mockReturnValue(mockStorage);
-      mockUserSupabase.auth.getUser.mockResolvedValue({
+      // Mock supabase.auth.getUser (not userSupabase!) - line 159 of controller
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: {
           user: {
             user_metadata: {
@@ -624,9 +474,19 @@ describe("UserController", () => {
             },
           },
         },
+        error: null,
       });
 
-      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValue({
+      mockStorage.upload.mockResolvedValueOnce({
+        data: { path: "avatars/user-123/file.jpg" },
+        error: null,
+      });
+
+      mockStorage.getPublicUrl.mockReturnValueOnce({
+        data: { publicUrl: "https://example.com/avatar.jpg" },
+      });
+
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
         data: { user: { id: "user-123" } },
         error: null,
       });
@@ -648,19 +508,8 @@ describe("UserController", () => {
     });
 
     it("should replace old avatar when uploading new one", async () => {
-      const mockStorage = {
-        upload: jest.fn().mockResolvedValue({
-          data: { path: "avatars/user-123/new.jpg" },
-          error: null,
-        }),
-        remove: jest.fn().mockResolvedValue({ error: null }),
-        getPublicUrl: jest.fn().mockReturnValue({
-          data: { publicUrl: "https://example.com/new-avatar.jpg" },
-        }),
-      };
-
-      mockUserSupabase.storage.from.mockReturnValue(mockStorage);
-      mockUserSupabase.auth.getUser.mockResolvedValue({
+      // Mock supabase.auth.getUser (not userSupabase!)
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: {
           user: {
             user_metadata: {
@@ -669,9 +518,19 @@ describe("UserController", () => {
             },
           },
         },
+        error: null,
       });
 
-      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValue({
+      mockStorage.upload.mockResolvedValueOnce({
+        data: { path: "avatars/user-123/new.jpg" },
+        error: null,
+      });
+
+      mockStorage.getPublicUrl.mockReturnValueOnce({
+        data: { publicUrl: "https://example.com/new-avatar.jpg" },
+      });
+
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
         data: { user: { id: "user-123" } },
         error: null,
       });
@@ -697,18 +556,15 @@ describe("UserController", () => {
     });
 
     it("should handle storage upload error", async () => {
-      const mockStorage = {
-        upload: jest.fn().mockResolvedValue({
-          data: null,
-          error: { message: "Upload failed" },
-        }),
-        remove: jest.fn().mockResolvedValue({ error: null }),
-        getPublicUrl: jest.fn(),
-      };
-
-      mockUserSupabase.storage.from.mockReturnValue(mockStorage);
-      mockUserSupabase.auth.getUser.mockResolvedValue({
+      // Mock supabase.auth.getUser (not userSupabase!)
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: { user: { user_metadata: {} } },
+        error: null,
+      });
+
+      mockStorage.upload.mockResolvedValueOnce({
+        data: null,
+        error: { message: "Upload failed" },
       });
 
       const response = await request(app)
@@ -721,23 +577,22 @@ describe("UserController", () => {
     });
 
     it("should handle metadata update error", async () => {
-      const mockStorage = {
-        upload: jest.fn().mockResolvedValue({
-          data: { path: "avatars/user-123/file.jpg" },
-          error: null,
-        }),
-        remove: jest.fn().mockResolvedValue({ error: null }),
-        getPublicUrl: jest.fn().mockReturnValue({
-          data: { publicUrl: "https://example.com/avatar.jpg" },
-        }),
-      };
-
-      mockUserSupabase.storage.from.mockReturnValue(mockStorage);
-      mockUserSupabase.auth.getUser.mockResolvedValue({
+      // Mock supabase.auth.getUser (not userSupabase!)
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: { user: { user_metadata: {} } },
+        error: null,
       });
 
-      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValue({
+      mockStorage.upload.mockResolvedValueOnce({
+        data: { path: "avatars/user-123/file.jpg" },
+        error: null,
+      });
+
+      mockStorage.getPublicUrl.mockReturnValueOnce({
+        data: { publicUrl: "https://example.com/avatar.jpg" },
+      });
+
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
         data: null,
         error: { message: "Metadata update failed" },
       });
@@ -752,21 +607,8 @@ describe("UserController", () => {
     });
 
     it("should continue if old avatar deletion fails", async () => {
-      const mockStorage = {
-        upload: jest.fn().mockResolvedValue({
-          data: { path: "avatars/user-123/new.jpg" },
-          error: null,
-        }),
-        remove: jest
-          .fn()
-          .mockResolvedValue({ error: { message: "Not found" } }),
-        getPublicUrl: jest.fn().mockReturnValue({
-          data: { publicUrl: "https://example.com/new-avatar.jpg" },
-        }),
-      };
-
-      mockUserSupabase.storage.from.mockReturnValue(mockStorage);
-      mockUserSupabase.auth.getUser.mockResolvedValue({
+      // Mock supabase.auth.getUser (not userSupabase!)
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: {
           user: {
             user_metadata: {
@@ -775,9 +617,23 @@ describe("UserController", () => {
             },
           },
         },
+        error: null,
       });
 
-      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValue({
+      mockStorage.upload.mockResolvedValueOnce({
+        data: { path: "avatars/user-123/new.jpg" },
+        error: null,
+      });
+
+      mockStorage.remove.mockResolvedValueOnce({
+        error: { message: "Not found" },
+      });
+
+      mockStorage.getPublicUrl.mockReturnValueOnce({
+        data: { publicUrl: "https://example.com/new-avatar.jpg" },
+      });
+
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
         data: { user: { id: "user-123" } },
         error: null,
       });
@@ -787,20 +643,13 @@ describe("UserController", () => {
         .set("Authorization", "Bearer mock-token")
         .attach("avatar", Buffer.from("fake-image-data"), "new-avatar.jpg");
 
-      // Should still succeed even if old avatar deletion failed
       expect(response.status).toBe(200);
     });
   });
 
   describe("DELETE /api/user/avatar", () => {
     it("should delete avatar successfully", async () => {
-      const mockStorage = {
-        remove: jest.fn().mockResolvedValue({ error: null }),
-      };
-
-      mockUserSupabase.storage.from.mockReturnValue(mockStorage);
-
-      mockSupabase.auth.getUser.mockResolvedValue({
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: {
           user: {
             user_metadata: {
@@ -812,7 +661,9 @@ describe("UserController", () => {
         error: null,
       });
 
-      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValue({
+      mockStorage.remove.mockResolvedValueOnce({ error: null });
+
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
         data: { user: { id: "user-123" } },
         error: null,
       });
@@ -830,7 +681,7 @@ describe("UserController", () => {
     });
 
     it("should reject when user has no avatar", async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: {
           user: {
             user_metadata: {},
@@ -848,7 +699,7 @@ describe("UserController", () => {
     });
 
     it("should handle failed user data retrieval", async () => {
-      mockSupabase.auth.getUser.mockResolvedValue({
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: { user: null },
         error: { message: "User not found" },
       });
@@ -862,15 +713,7 @@ describe("UserController", () => {
     });
 
     it("should handle storage deletion error", async () => {
-      const mockStorage = {
-        remove: jest.fn().mockResolvedValue({
-          error: { message: "Storage deletion failed" },
-        }),
-      };
-
-      mockUserSupabase.storage.from.mockReturnValue(mockStorage);
-
-      mockSupabase.auth.getUser.mockResolvedValue({
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: {
           user: {
             user_metadata: {
@@ -880,6 +723,10 @@ describe("UserController", () => {
           },
         },
         error: null,
+      });
+
+      mockStorage.remove.mockResolvedValueOnce({
+        error: { message: "Storage deletion failed" },
       });
 
       const response = await request(app)
@@ -891,13 +738,7 @@ describe("UserController", () => {
     });
 
     it("should handle metadata update error after deletion", async () => {
-      const mockStorage = {
-        remove: jest.fn().mockResolvedValue({ error: null }),
-      };
-
-      mockUserSupabase.storage.from.mockReturnValue(mockStorage);
-
-      mockSupabase.auth.getUser.mockResolvedValue({
+      mockSupabase.auth.getUser.mockResolvedValueOnce({
         data: {
           user: {
             user_metadata: {
@@ -909,7 +750,9 @@ describe("UserController", () => {
         error: null,
       });
 
-      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValue({
+      mockStorage.remove.mockResolvedValueOnce({ error: null });
+
+      mockSupabaseAdmin.auth.admin.updateUserById.mockResolvedValueOnce({
         data: null,
         error: { message: "Metadata update failed" },
       });

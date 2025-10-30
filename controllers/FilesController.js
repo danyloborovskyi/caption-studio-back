@@ -254,7 +254,13 @@ class FilesController {
       updated_at: new Date().toISOString(),
     };
 
-    if (filename !== undefined) updateData.filename = filename.trim();
+    if (filename !== undefined) {
+      const trimmedFilename = filename.trim();
+      if (trimmedFilename === "") {
+        throw new ValidationError("Filename cannot be empty");
+      }
+      updateData.filename = trimmedFilename;
+    }
     if (description !== undefined) updateData.description = description;
     if (tags !== undefined) updateData.tags = tags;
 
@@ -434,7 +440,7 @@ class FilesController {
         // Add to archive with collision handling
         let archiveFilename = file.filename;
         let counter = 1;
-        
+
         // Handle filename collisions
         while (usedFilenames.has(archiveFilename)) {
           const extIndex = file.filename.lastIndexOf(".");
@@ -584,7 +590,14 @@ class FilesController {
         }
 
         const updateData = { updated_at: new Date().toISOString() };
-        if (filename !== undefined) updateData.filename = filename.trim();
+
+        if (filename !== undefined) {
+          const trimmedFilename = filename.trim();
+          if (trimmedFilename === "") {
+            throw new Error("Filename cannot be empty");
+          }
+          updateData.filename = trimmedFilename;
+        }
         if (description !== undefined) updateData.description = description;
         if (tags !== undefined) updateData.tags = tags;
 

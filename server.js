@@ -1,24 +1,50 @@
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS Configuration
+// Security Headers
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "https:"],
+      },
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+  })
+);
+
+// CORS Configuration - Environment-aware
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
 
     const allowedOrigins = [
-      process.env.FRONTEND_URL || "http://localhost:3000",
+      process.env.FRONTEND_URL,
       "https://caption-cursor-studio.vercel.app",
-      "http://localhost:3000",
-      "http://localhost:3001",
     ];
 
-    if (allowedOrigins.includes(origin)) {
+    // Only allow localhost in development
+    if (process.env.NODE_ENV !== "production") {
+      allowedOrigins.push("http://localhost:3000", "http://localhost:3001");
+    }
+
+    const filtered = allowedOrigins.filter(Boolean);
+
+    if (filtered.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`Origin ${origin} not allowed by CORS`));
@@ -29,15 +55,37 @@ const corsOptions = {
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 };
 
-// Middleware
+// Apply CORS
 app.use(cors(corsOptions));
+
+// Rate limiting for authentication endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 requests per windowMs
+  message:
+    "Too many authentication attempts, please try again later. Please wait 15 minutes.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General API rate limiter
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per windowMs
+  message: "Too many requests, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Import and use auth routes
+// Apply rate limiting to all API routes
+app.use("/api/", apiLimiter);
+
+// Import and use auth routes with stricter rate limiting
 const authRoutes = require("./routes/auth");
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authLimiter, authRoutes);
 
 // Import and use user routes
 const userRoutes = require("./routes/user");
@@ -50,10 +98,6 @@ app.use("/api/upload", uploadRoutes);
 // Import and use files routes
 const filesRoutes = require("./routes/files");
 app.use("/api/files", filesRoutes);
-
-// Import and use test routes
-const testRoutes = require("./routes/test");
-app.use("/api/test", testRoutes);
 
 // Basic health check endpoint
 app.get("/", (req, res) => {
@@ -73,11 +117,9 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Error handling middleware
-app.use((error, req, res, next) => {
-  console.error(error);
-  res.status(500).json({ error: "Internal server error" });
-});
+// Centralized error handling middleware
+const { errorHandler } = require("./utils/errorHandler");
+app.use(errorHandler);
 
 // 404 handler
 app.use("*", (req, res) => {

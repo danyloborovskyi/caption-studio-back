@@ -501,21 +501,29 @@ class FilesController {
     const container = new ServiceContainer(userToken);
     const uploadService = container.getUploadService();
 
+    // Process all files in parallel using Promise.allSettled
+    const startTime = Date.now();
+    const promises = ids.map((id) =>
+      uploadService
+        .analyzeExistingFile(id, userId, tagStyle)
+        .then((result) => ({ status: "fulfilled", id, file: result.file }))
+        .catch((error) => ({ status: "rejected", id, error: error.message }))
+    );
+
+    const settledResults = await Promise.all(promises);
+    const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+
+    // Separate successful results and errors
     const results = [];
     const errors = [];
 
-    for (const id of ids) {
-      try {
-        const { file } = await uploadService.analyzeExistingFile(
-          id,
-          userId,
-          tagStyle
-        );
-        results.push(file.toJSON());
-      } catch (error) {
-        errors.push({ id, error: error.message });
+    settledResults.forEach((result) => {
+      if (result.status === "fulfilled") {
+        results.push(result.file.toJSON());
+      } else {
+        errors.push({ id: result.id, error: result.error });
       }
-    }
+    });
 
     const statusCode =
       errors.length > 0 ? (results.length > 0 ? 207 : 400) : 200;
@@ -529,6 +537,7 @@ class FilesController {
         totalRegenerated: results.length,
         totalFailed: errors.length,
         totalRequested: ids.length,
+        processingTimeSeconds: parseFloat(processingTime),
       },
     });
   });

@@ -80,12 +80,19 @@ const apiLimiter = rateLimit({
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Apply rate limiting to all API routes
-app.use("/api/", apiLimiter);
+// Apply rate limiting to all API routes (skip in test environment)
+if (process.env.NODE_ENV !== "test") {
+  app.use("/api/", apiLimiter);
+}
 
 // Import and use auth routes with stricter rate limiting
 const authRoutes = require("./routes/auth");
-app.use("/api/auth", authLimiter, authRoutes);
+// Skip rate limiting in test environment
+if (process.env.NODE_ENV === "test") {
+  app.use("/api/auth", authRoutes);
+} else {
+  app.use("/api/auth", authLimiter, authRoutes);
+}
 
 // Import and use user routes
 const userRoutes = require("./routes/user");

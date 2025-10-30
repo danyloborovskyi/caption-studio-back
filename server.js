@@ -35,12 +35,10 @@ const corsOptions = {
     const allowedOrigins = [
       process.env.FRONTEND_URL,
       "https://caption-cursor-studio.vercel.app",
+      // Allow localhost for development/testing even in production
+      "http://localhost:3000",
+      "http://localhost:3001",
     ];
-
-    // Only allow localhost in development
-    if (process.env.NODE_ENV !== "production") {
-      allowedOrigins.push("http://localhost:3000", "http://localhost:3001");
-    }
 
     const filtered = allowedOrigins.filter(Boolean);
 

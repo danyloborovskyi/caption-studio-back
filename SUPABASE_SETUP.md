@@ -1,6 +1,38 @@
-# Supabase Setup Guide for Image Uploads
+# Supabase Setup Guide
 
 ## Required Supabase Configuration
+
+## ⚠️ CRITICAL: Authentication Redirect URLs
+
+**You must configure this for email confirmation to work correctly in production!**
+
+### Configure in Supabase Dashboard:
+
+1. Go to **Authentication** > **URL Configuration** in your Supabase dashboard
+2. Add your production frontend URL to **Redirect URLs**:
+   ```
+   https://caption-cursor-studio.vercel.app/upload
+   ```
+3. For local development, also add:
+   ```
+   http://localhost:3000/upload
+   ```
+4. Click **Save**
+
+**Why this is needed:**
+
+- When users sign up, they receive a confirmation email
+- Clicking the confirmation link redirects them to this URL
+- Without this configuration, users will be redirected to `localhost:3000` even in production
+- The backend sends `FRONTEND_URL` from environment variables as the redirect URL
+
+### Deployment Checklist:
+
+- [ ] Set `FRONTEND_URL=https://caption-cursor-studio.vercel.app` in Render environment variables
+- [ ] Add `https://caption-cursor-studio.vercel.app/upload` to Supabase Redirect URLs
+- [ ] Redeploy backend after updating environment variables
+
+---
 
 ### 1. Create Storage Bucket
 

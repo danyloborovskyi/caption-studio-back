@@ -294,15 +294,17 @@ caption-studio-back/
 
 ## 🔐 Environment Variables
 
-| Variable               | Description               | Required | Default               |
-| ---------------------- | ------------------------- | -------- | --------------------- |
-| `NODE_ENV`             | Environment mode          | No       | development           |
-| `PORT`                 | Server port               | No       | 3000                  |
-| `FRONTEND_URL`         | Frontend URL for CORS     | No       | http://localhost:3000 |
-| `SUPABASE_URL`         | Supabase project URL      | Yes      | -                     |
-| `SUPABASE_ANON_KEY`    | Supabase anonymous key    | Yes      | -                     |
-| `SUPABASE_SERVICE_KEY` | Supabase service role key | Yes      | -                     |
-| `OPENAI_API_KEY`       | OpenAI API key            | Yes      | -                     |
+| Variable               | Description                                                   | Required | Default               |
+| ---------------------- | ------------------------------------------------------------- | -------- | --------------------- |
+| `NODE_ENV`             | Environment mode                                              | No       | development           |
+| `PORT`                 | Server port                                                   | No       | 3000                  |
+| `FRONTEND_URL`         | Frontend URL for CORS **and email confirmation redirects** ⚠️ | **Yes**  | http://localhost:3000 |
+| `SUPABASE_URL`         | Supabase project URL                                          | Yes      | -                     |
+| `SUPABASE_ANON_KEY`    | Supabase anonymous key                                        | Yes      | -                     |
+| `SUPABASE_SERVICE_KEY` | Supabase service role key                                     | Yes      | -                     |
+| `OPENAI_API_KEY`       | OpenAI API key                                                | Yes      | -                     |
+
+⚠️ **CRITICAL:** In production, set `FRONTEND_URL=https://caption-cursor-studio.vercel.app` and add `https://caption-cursor-studio.vercel.app/upload` to Supabase's allowed redirect URLs (see [SUPABASE_SETUP.md](./SUPABASE_SETUP.md)).
 
 ## 🧪 API Usage Examples
 
@@ -745,7 +747,47 @@ All responses use **camelCase** for consistency:
 - **CDN Integration** - Fast file delivery via Supabase Storage
 - **Dependency Injection** - Efficient service reuse and caching
 
-## 🧪 Testing & Quality
+## 🧪 Testing
+
+### Test Setup
+
+```bash
+# Install dependencies (includes Jest)
+npm install
+
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests for CI
+npm run test:ci
+```
+
+### Test Coverage
+
+Current test suites:
+
+- ✅ **Domain Models** - File entity business logic (95% coverage)
+- ✅ **Utilities** - File validation, sanitization, security (100% coverage)
+- ✅ **Integration** - Authentication endpoints
+- ✅ **Error Handling** - Custom error classes (81% coverage)
+
+**Current Coverage:** ~20% overall | **Target:** 50%+ as test suite grows
+
+```bash
+# View coverage report
+npm test
+open coverage/lcov-report/index.html
+```
+
+Coverage thresholds (automatically enforced):
+
+- Statements: 19%
+- Branches: 16%
+- Functions: 17%
+- Lines: 20%
 
 ### Architecture Benefits
 
@@ -754,27 +796,7 @@ All responses use **camelCase** for consistency:
 - **Interface Abstractions** - Mock implementations for testing
 - **Domain Models** - Business logic easily unit testable
 
-### Example Test Structure
-
-```javascript
-describe("UploadService", () => {
-  it("should upload file successfully", async () => {
-    // Mock dependencies
-    const mockStorage = { uploadFile: jest.fn() };
-    const mockAI = { analyzeImage: jest.fn() };
-    const mockRepo = { create: jest.fn() };
-
-    // Inject mocks
-    const service = new UploadService(mockStorage, mockAI, mockRepo);
-
-    // Test business logic
-    await service.uploadAndProcess(mockFile, userId);
-
-    // Verify
-    expect(mockStorage.uploadFile).toHaveBeenCalled();
-  });
-});
-```
+See `__tests__/README.md` for detailed testing guide.
 
 ## 📖 Documentation
 

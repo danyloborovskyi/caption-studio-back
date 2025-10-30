@@ -11,8 +11,9 @@ class FileService {
    */
   static generateSecureFilename(originalName, userId) {
     const timestamp = Date.now();
+    // Generate enough random bytes to ensure we get at least 6 alphanumeric characters
     const randomString = crypto
-      .randomBytes(Math.ceil(6 * 0.75))
+      .randomBytes(6)
       .toString("base64")
       .replace(/[+/=]/g, "")
       .substring(0, 6);

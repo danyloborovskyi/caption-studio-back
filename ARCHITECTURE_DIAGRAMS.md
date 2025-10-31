@@ -15,6 +15,7 @@
 6. [Database Schema](#database-schema)
 7. [Deployment Architecture](#deployment-architecture)
 8. [Security Layers](#security-layers)
+9. [File Structure Mapping](#-file-structure-mapping)
 
 ---
 
@@ -529,6 +530,391 @@ graph TD
 | **Input** | File Validation | Type, size, MIME checks | ✅ |
 | **Crypto** | Secure Random | crypto.randomBytes() | ✅ |
 | **Logging** | Security Events | Centralized logger | ✅ |
+
+---
+
+## 📂 File Structure Mapping
+
+```
+caption-studio-back/
+│
+├── 📁 controllers/                    # Presentation Layer - HTTP Request Handlers
+│   ├── AuthController.js              # Authentication operations (signup, login, logout, refresh)
+│   ├── FilesController.js             # File management (CRUD, search, bulk operations)
+│   ├── UploadController.js            # File upload operations (single, bulk, analysis)
+│   └── UserController.js              # User profile management (profile, avatar)
+│
+├── 📁 services/                       # Business Logic Layer
+│   ├── 📁 interfaces/                 # Service contracts (abstractions)
+│   │   ├── IAIService.js              # AI service interface
+│   │   └── IStorageProvider.js        # Storage provider interface
+│   ├── 📁 implementations/            # Concrete implementations
+│   │   ├── OpenAIService.js           # OpenAI Vision API integration
+│   │   └── SupabaseStorageProvider.js # Supabase Storage implementation
+│   ├── ServiceContainer.js            # Dependency injection container
+│   └── UploadService.js               # Core upload business logic
+│
+├── 📁 repositories/                   # Data Access Layer
+│   └── FileRepository.js              # Database operations for files (CRUD, queries)
+│
+├── 📁 models/                         # Domain Models Layer
+│   └── File.js                        # File entity with business logic
+│
+├── 📁 middleware/                     # Express Middleware
+│   └── auth.js                        # Authentication middleware (JWT verification)
+│
+├── 📁 routes/                         # API Route Definitions
+│   ├── auth.js                        # Authentication routes
+│   ├── files.js                       # File management routes
+│   ├── upload.js                      # Upload routes
+│   └── user.js                        # User profile routes
+│
+├── 📁 utils/                          # Utility Functions
+│   ├── errorHandler.js                # Centralized error handling
+│   ├── fileService.js                 # File operations and validation
+│   └── logger.js                      # Structured logging service
+│
+├── 📁 config/                         # Configuration
+│   └── supabase.js                    # Centralized Supabase client
+│
+├── 📁 database/                       # Database Setup Scripts
+│   ├── add-user-isolation.sql         # Row-Level Security (RLS) policies
+│   ├── avatar-storage-setup.sql       # Avatar storage configuration
+│   ├── migrate-to-uuid-ids.sql        # UUID migration script
+│   └── storage-policies.sql           # Storage bucket policies
+│
+├── 📁 __tests__/                      # Test Suite (173 tests, 66% coverage)
+│   ├── 📁 __mocks__/                  # Mock implementations
+│   │   └── supabase.js                # Supabase client mock
+│   ├── 📁 controllers/                # Controller integration tests
+│   │   ├── FilesController.test.js    # File operations tests
+│   │   ├── UploadController.test.js   # Upload operations tests
+│   │   └── UserController.test.js     # User operations tests (23 tests)
+│   ├── 📁 integration/                # Integration tests
+│   │   └── auth.test.js               # Authentication endpoint tests
+│   ├── 📁 models/                     # Domain model tests
+│   │   └── File.test.js               # File entity tests
+│   ├── 📁 utils/                      # Utility function tests
+│   │   ├── errorHandler.test.js       # Error handling tests
+│   │   └── fileService.test.js        # File service tests
+│   ├── setup.js                       # Jest test setup
+│   └── README.md                      # Testing guide
+│
+├── 📁 .github/                        # GitHub Configuration
+│   └── 📁 workflows/                  # CI/CD Pipelines
+│       └── ci.yml                     # CI/CD workflow (test, security, build, deploy)
+│
+├── 📁 docs/                           # Documentation (optional)
+│
+├── 📄 server.js                       # Main Express server entry point
+├── 📄 package.json                    # Project dependencies and scripts
+├── 📄 .env.template                   # Environment variables template
+├── 📄 .gitignore                      # Git ignore rules
+├── 📄 check-secrets.js                # Secret detection script
+│
+├── 📖 README.md                       # Project overview and documentation
+├── 📖 ARCHITECTURE.md                 # Detailed architecture documentation
+├── 📖 ARCHITECTURE_DIAGRAMS.md        # Visual architecture diagrams (this file)
+├── 📖 API_ENDPOINTS.md                # Complete API reference
+├── 📖 SUPABASE_SETUP.md               # Database and storage setup guide
+├── 📖 DEPLOYMENT.md                   # Deployment guide and checklist
+└── 📖 TOKEN_SECURITY_ANALYSIS.md      # Token security analysis and options
+```
+
+### **Directory Breakdown**
+
+#### 🎯 **Core Application Layers**
+
+```mermaid
+graph TD
+    subgraph "Application Structure"
+        R[routes/<br/>26-69 lines each]
+        C[controllers/<br/>245-641 lines each]
+        S[services/<br/>46-301 lines each]
+        REPO[repositories/<br/>150 lines]
+        M[models/<br/>71 lines]
+    end
+    
+    subgraph "Supporting Layers"
+        MW[middleware/<br/>auth.js]
+        U[utils/<br/>helpers]
+        CFG[config/<br/>setup]
+    end
+    
+    R --> C
+    C --> S
+    C --> MW
+    S --> REPO
+    REPO --> M
+    S --> U
+    C --> U
+    REPO --> CFG
+    
+    style R fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style C fill:#ffd54f,stroke:#333,stroke-width:2px
+    style S fill:#ffcc80,stroke:#333,stroke-width:2px
+    style REPO fill:#a5d6a7,stroke:#333,stroke-width:2px
+    style M fill:#81c784,stroke:#333,stroke-width:2px
+```
+
+---
+
+### **File Responsibilities**
+
+#### **1. Controllers/** (Presentation Layer)
+
+| File | Lines | Purpose | Key Methods |
+|------|-------|---------|-------------|
+| `AuthController.js` | 245 | Authentication operations | `signup()`, `login()`, `logout()`, `refresh()`, `verify()` |
+| `FilesController.js` | 641 | File management CRUD + bulk ops | `listFiles()`, `getFileById()`, `updateFile()`, `deleteFile()`, `bulkUpdate()`, `bulkDelete()`, `regenerateAnalysis()`, `downloadFile()`, `bulkDownload()` |
+| `UploadController.js` | 275 | File upload and AI analysis | `uploadImage()`, `uploadAndAnalyze()`, `bulkUploadAndAnalyze()`, `analyzeExisting()`, `getProgress()` |
+| `UserController.js` | 275 | User profile management | `getProfile()`, `updateProfile()`, `uploadAvatar()`, `deleteAvatar()` |
+
+**Total:** 1,436 lines (Thin controllers, business logic in services)
+
+---
+
+#### **2. Services/** (Business Logic Layer)
+
+| File | Lines | Purpose | Key Methods |
+|------|-------|---------|-------------|
+| `ServiceContainer.js` | 75 | Dependency injection | `getUploadService()`, `getAIService()`, `getStorageProvider()` |
+| `UploadService.js` | 301 | Core upload logic | `processUpload()`, `processMultipleUploads()`, `analyzeExistingFile()` |
+| `OpenAIService.js` | 111 | AI image analysis | `analyzeImage()`, `generateTags()` |
+| `SupabaseStorageProvider.js` | 91 | File storage operations | `uploadFile()`, `downloadFile()`, `deleteFile()`, `getPublicUrl()` |
+| `IAIService.js` | 33 | AI service interface | Interface definition |
+| `IStorageProvider.js` | 51 | Storage provider interface | Interface definition |
+
+**Total:** 662 lines (Core business logic)
+
+---
+
+#### **3. Repositories/** (Data Access Layer)
+
+| File | Lines | Purpose | Key Methods |
+|------|-------|---------|-------------|
+| `FileRepository.js` | 150 | Database operations | `create()`, `findById()`, `findAll()`, `update()`, `delete()`, `search()` |
+
+**All queries use parameterized statements** ✅ (SQL injection protection)
+
+---
+
+#### **4. Models/** (Domain Layer)
+
+| File | Lines | Purpose | Key Methods |
+|------|-------|---------|-------------|
+| `File.js` | 71 | File entity with business logic | `isImage()`, `hasAIAnalysis()`, `toJSON()`, `validate()` |
+
+**Rich domain model** with validation and business rules
+
+---
+
+#### **5. Routes/** (API Endpoints)
+
+| File | Lines | Endpoints | Rate Limiting |
+|------|-------|-----------|---------------|
+| `auth.js` | 26 | 5 endpoints | 10 req/15min |
+| `user.js` | 62 | 4 endpoints | 100 req/15min |
+| `upload.js` | 69 | 5 endpoints | 100 req/15min |
+| `files.js` | 51 | 14 endpoints | 100 req/15min |
+
+**Total:** 28 endpoints (RESTful API design)
+
+---
+
+#### **6. Middleware/** (Cross-Cutting Concerns)
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `auth.js` | 158 | JWT authentication, user context injection |
+
+---
+
+#### **7. Utils/** (Utilities)
+
+| File | Lines | Purpose | Key Functions |
+|------|-------|---------|---------------|
+| `errorHandler.js` | 158 | Error handling | `asyncHandler()`, `errorHandler()`, Custom error classes |
+| `fileService.js` | 122 | File operations | `sanitizeFilename()`, `validateFileExtension()`, `generateSecureFilename()` |
+| `logger.js` | 82 | Structured logging | `security()`, `audit()`, `error()`, `info()`, `performance()` |
+
+---
+
+### **Code Metrics Summary**
+
+```mermaid
+pie title Lines of Code by Layer
+    "Controllers (Presentation)" : 1436
+    "Services (Business Logic)" : 662
+    "Repositories (Data Access)" : 150
+    "Models (Domain)" : 71
+    "Routes (API)" : 208
+    "Middleware" : 158
+    "Utils" : 362
+```
+
+| Layer | Lines of Code | Percentage | Status |
+|-------|---------------|------------|--------|
+| **Controllers** | 1,436 | 45% | ✅ Thin, delegates to services |
+| **Services** | 662 | 21% | ✅ Core business logic |
+| **Utils** | 362 | 11% | ✅ Reusable helpers |
+| **Routes** | 208 | 7% | ✅ Minimal, just routing |
+| **Middleware** | 158 | 5% | ✅ Auth and error handling |
+| **Repositories** | 150 | 5% | ✅ Database abstraction |
+| **Models** | 71 | 2% | ✅ Domain entities |
+| **Config** | ~100 | 3% | ✅ Configuration |
+| **Total** | ~3,147 | 100% | ✅ Well-organized |
+
+---
+
+### **Test Coverage by Directory**
+
+| Directory | Coverage | Tests | Status |
+|-----------|----------|-------|--------|
+| `controllers/` | 98.68% | 150+ tests | ✅ Excellent |
+| `models/` | 95.23% | 15 tests | ✅ Excellent |
+| `utils/errorHandler.js` | 100% | 20 tests | ✅ Perfect |
+| `utils/fileService.js` | 100% | 15 tests | ✅ Perfect |
+| `utils/logger.js` | 9.09% | 0 tests | ⚠️ Low |
+| `middleware/auth.js` | 15.9% | 2 tests | ⚠️ Needs work |
+| `services/` | 7.87% | 0 tests | ❌ Critical gap |
+| `repositories/` | 6% | 0 tests | ❌ Critical gap |
+
+**Overall Coverage:** 66.87% | **Target:** 75%+
+
+---
+
+### **Configuration Files**
+
+| File | Purpose | Environment |
+|------|---------|-------------|
+| `.env.template` | Environment variable template | All |
+| `package.json` | Dependencies, scripts, Jest config | All |
+| `.gitignore` | Git ignore rules | Development |
+| `check-secrets.js` | Secret detection script | CI/CD |
+| `.github/workflows/ci.yml` | CI/CD pipeline configuration | CI/CD |
+
+---
+
+### **Documentation Files**
+
+| File | Lines | Purpose | Audience |
+|------|-------|---------|----------|
+| `README.md` | 991 | Project overview, setup, API reference | All developers |
+| `ARCHITECTURE.md` | ~500 | Detailed architecture documentation | Backend team |
+| `ARCHITECTURE_DIAGRAMS.md` | 841+ | Visual diagrams and flows | All teams |
+| `API_ENDPOINTS.md` | ~300 | Complete API endpoint reference | Frontend team |
+| `SUPABASE_SETUP.md` | ~200 | Database and storage setup | DevOps |
+| `DEPLOYMENT.md` | ~250 | Deployment guide and checklist | DevOps |
+| `TOKEN_SECURITY_ANALYSIS.md` | ~800 | Security analysis and options | Security team |
+| `__tests__/README.md` | ~150 | Testing guide and best practices | QA team |
+
+---
+
+### **Key Files Deep Dive**
+
+#### **server.js** - Application Entry Point (200+ lines)
+
+```javascript
+// Key responsibilities:
+├── Environment configuration (dotenv)
+├── Express app setup
+├── Security middleware (helmet, CORS)
+├── Rate limiting (auth: 10/15min, API: 100/15min)
+├── Body parsers (JSON, URL-encoded)
+├── Route mounting (/api/auth, /api/user, /api/upload, /api/files)
+├── Health endpoint (/health)
+├── Error handling middleware
+└── Server startup (port 3000)
+```
+
+**Features:**
+- ✅ Environment-aware CORS (localhost only in dev)
+- ✅ Rate limiting (auth + API)
+- ✅ Security headers (Helmet)
+- ✅ Centralized error handling
+- ✅ Health check endpoint
+- ✅ Test-friendly (doesn't start in test mode)
+
+---
+
+#### **ServiceContainer.js** - Dependency Injection (75 lines)
+
+```javascript
+// Singleton pattern with lazy loading
+class ServiceContainer {
+  static uploadService = null;
+  static aiService = null;
+  static storageProvider = null;
+
+  static getUploadService() {
+    if (!this.uploadService) {
+      this.uploadService = new UploadService(
+        this.getStorageProvider(),
+        this.getAIService()
+      );
+    }
+    return this.uploadService;
+  }
+}
+```
+
+**Benefits:**
+- ✅ Centralized dependency management
+- ✅ Lazy initialization (performance)
+- ✅ Easy to swap implementations
+- ✅ Testable (can inject mocks)
+
+---
+
+### **Dependencies Overview**
+
+#### **Production Dependencies** (`package.json`)
+
+```json
+{
+  "@supabase/supabase-js": "^2.75.0",  // Auth + DB + Storage
+  "archiver": "^7.0.1",                 // ZIP file creation
+  "cors": "^2.8.5",                     // CORS handling
+  "dotenv": "^16.3.1",                  // Environment variables
+  "express": "^4.18.2",                 // Web framework
+  "express-rate-limit": "^8.1.0",       // Rate limiting
+  "helmet": "^8.1.0",                   // Security headers
+  "multer": "^2.0.2",                   // File upload handling
+  "openai": "^6.3.0"                    // OpenAI API client
+}
+```
+
+#### **Development Dependencies**
+
+```json
+{
+  "@types/jest": "^29.5.8",             // Jest TypeScript types
+  "jest": "^29.7.0",                    // Testing framework
+  "nodemon": "^3.0.2",                  // Dev server auto-restart
+  "supertest": "^6.3.3"                 // HTTP integration testing
+}
+```
+
+---
+
+### **Quick Navigation Guide**
+
+| I want to... | Go to... |
+|--------------|----------|
+| Add a new API endpoint | `routes/` → `controllers/` |
+| Add business logic | `services/` |
+| Change database queries | `repositories/` |
+| Add domain validation | `models/` |
+| Configure authentication | `middleware/auth.js` |
+| Handle errors | `utils/errorHandler.js` |
+| Validate files | `utils/fileService.js` |
+| Add logging | `utils/logger.js` |
+| Configure Supabase | `config/supabase.js` |
+| Setup database | `database/*.sql` |
+| Add tests | `__tests__/` |
+| Configure CI/CD | `.github/workflows/ci.yml` |
+| Update documentation | `*.md` files |
 
 ---
 
